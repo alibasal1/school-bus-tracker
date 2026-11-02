@@ -1,0 +1,5 @@
+// Route & Stop service. Owner: Yehia (247330).
+// All SQL for this service lives here. Use sql`...${value}` so values are parameters.
+const sql = require('../db');
+
+module.exports = {};
