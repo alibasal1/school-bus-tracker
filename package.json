@@ -1,5 +1,5 @@
 {
-  "name": "bus-tracker-api",
+  "name": "favorites-alerts-api",
   "version": "1.0.0",
   "private": true,
   "main": "server.js",
