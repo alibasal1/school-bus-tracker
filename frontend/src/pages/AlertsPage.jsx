@@ -9,7 +9,7 @@ export default function AlertsPage() {
   useEffect(() => {
     async function loadAlerts() {
       try {
-        const data = await apiRequest('/api/alerts');
+        const data = await apiRequest('favorites', '/api/alerts');
         setAlerts(data.alerts);
       } catch (err) {
         setError(err.message);
@@ -22,7 +22,7 @@ export default function AlertsPage() {
 
   async function markAsRead(id) {
     try {
-      const data = await apiRequest(`/api/alerts/${id}`, {
+      const data = await apiRequest('favorites', `/api/alerts/${id}`, {
         method: 'PATCH',
         body: { isRead: true }
       });

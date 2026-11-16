@@ -1,9 +1,10 @@
-import { API_BASE_URL } from './config';
+import { API_URLS } from './config';
 
-// One helper for every call to the API (Lab 5 apiRequest, React version).
-export async function apiRequest(path, { method = 'GET', body } = {}) {
+// One helper for every call to the APIs (Lab 5 apiRequest, React version).
+// service is 'routes' (Yehia), 'schedule' (Ahmed, also login) or 'favorites' (Ali).
+export async function apiRequest(service, path, { method = 'GET', body } = {}) {
   const token = localStorage.getItem('token');
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(`${API_URLS[service]}${path}`, {
     method,
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),

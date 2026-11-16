@@ -8,7 +8,7 @@ export default function FavoritesPage() {
 
   async function loadFavorites() {
     try {
-      const data = await apiRequest('/api/favorites');
+      const data = await apiRequest('favorites', '/api/favorites');
       setFavorites(data.favorites);
       setError('');
     } catch (err) {
@@ -24,7 +24,7 @@ export default function FavoritesPage() {
 
   async function removeFavorite(id) {
     try {
-      await apiRequest(`/api/favorites/${id}`, { method: 'DELETE' });
+      await apiRequest('favorites', `/api/favorites/${id}`, { method: 'DELETE' });
       setFavorites((current) => current.filter((favorite) => favorite.id !== id));
     } catch (err) {
       setError(err.message);
