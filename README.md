@@ -119,3 +119,24 @@ Yehia and Ahmed are in other repos, so they cannot call `createAlert` directly.
 They send a message to `favorites-alerts-queue`, and this Lambda creates the alerts
 (`services/alertsQueue.js`). Messages that fail 3 times move to `favorites-alerts-dlq`.
 How to send a message: see [docs/alerts-queue.md](docs/alerts-queue.md).
+
+### Alarms (CloudWatch + SNS)
+
+Two CloudWatch alarms send a message to the SNS topic `favorites-alerts-ops`:
+- `favorites-alerts-lambda-errors`: the Lambda failed at least once in 5 minutes.
+- `favorites-alerts-dlq-not-empty`: a queue message failed 3 times and is in the dead-letter queue.
+
+To get the alarms by email: `ALARM_EMAIL=you@example.com bash infra/deploy.sh`, then confirm the email.
+
+## AWS services used and why
+
+| Service | Why | Lecture |
+|---|---|---|
+| Lambda | Runs the API only when a request comes, no server to manage | L3 |
+| API Gateway | One web address, only our routes reach the code | L4, L9 |
+| IAM role and policy | The function may do only what it needs (least privilege) | L6 |
+| Secrets Manager | Neon link and Calendarific key are not in code or Lambda settings | L6 |
+| KMS | Our own key encrypts the secret, rotated every year | L6, L7 |
+| EventBridge | Runs the day-before holiday alert every evening | L3 |
+| SQS + dead-letter queue | Other services send alerts without calling our code; failed messages are kept | L8 |
+| CloudWatch Logs and alarms, SNS | See what happened, and get told when something fails | L8 |

@@ -16,6 +16,7 @@ RULE=favorites-alerts-daily-holiday
 QUEUE=favorites-alerts-queue
 DLQ=favorites-alerts-dlq
 KEY_ALIAS=alias/favorites-alerts
+TOPIC=favorites-alerts-ops
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
 
@@ -151,6 +152,33 @@ fi
 echo "QUEUE_URL=$QUEUE_URL" >> out/api-url.txt
 echo "Queue: $QUEUE_URL"
 
+echo "== 8. CloudWatch alarms: tell us when something goes wrong (SNS topic $TOPIC)"
+# Lecture 8: metrics detect the problem, logs explain it.
+if TOPIC_ARN=$(aws sns create-topic --name $TOPIC --query TopicArn --output text 2>/dev/null) && \
+   aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-lambda-errors \
+     --alarm-description "The Lambda failed at least once in 5 minutes" \
+     --namespace AWS/Lambda --metric-name Errors \
+     --dimensions Name=FunctionName,Value=$FN \
+     --statistic Sum --period 300 --evaluation-periods 1 \
+     --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
+     --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN && \
+   aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-dlq-not-empty \
+     --alarm-description "A queue message failed 3 times and is waiting in the dead-letter queue" \
+     --namespace AWS/SQS --metric-name ApproximateNumberOfMessagesVisible \
+     --dimensions Name=QueueName,Value=$DLQ \
+     --statistic Maximum --period 300 --evaluation-periods 1 \
+     --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
+     --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN; then
+  echo "Alarms: favorites-alerts-lambda-errors, favorites-alerts-dlq-not-empty -> $TOPIC"
+  if [ -n "$ALARM_EMAIL" ]; then
+    aws sns subscribe --topic-arn $TOPIC_ARN --protocol email \
+      --notification-endpoint "$ALARM_EMAIL" >/dev/null
+    echo "Alarm emails go to $ALARM_EMAIL (confirm the email AWS sends you)"
+  fi
+else
+  echo "(this AWS copy has no CloudWatch alarms; skipped)"
+fi
+
 if [ "$ACCOUNT" = "000000000000" ]; then
   API_URL=http://$API_ID.execute-api.localhost.floci.io:4566
 else
@@ -158,10 +186,10 @@ else
 fi
 echo "API_URL=$API_URL" >> out/api-url.txt
 
-echo "== 8. Test the API"
+echo "== 9. Test the API"
 curl -s --max-time 30 "$API_URL/api/health" || echo "(no answer yet: wait a few seconds and open the address below in your browser)"; echo
 
-echo "== 9. Test the daily job now (same event EventBridge sends)"
+echo "== 10. Test the daily job now (same event EventBridge sends)"
 aws lambda invoke --function-name $FN \
   --payload file://infra/events/daily-holiday.json \
   --cli-binary-format raw-in-base64-out out/daily-holiday-result.json >/dev/null \
