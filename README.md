@@ -63,7 +63,7 @@ Put the frontend's Vercel link in `CORS_ORIGINS`.
 ## Deploy to AWS on Floci (Lab 7)
 
 Floci is a free copy of AWS on your laptop. One script builds everything:
-IAM role and policy, the Lambda function, and the API Gateway in front of it.
+IAM role and policy, the secret in Secrets Manager, the Lambda function, and the API Gateway in front of it.
 
 ```
 docker compose -f infra/floci/docker-compose.yml up -d
@@ -80,7 +80,18 @@ Run `bash infra/deploy.sh` again after every code change. It updates the same fu
 |---|---|
 | `app.js` | The Express app (no listen) |
 | `server.js` | Runs the app on your PC |
-| `lambda.js` | Runs the app on Lambda (serverless-http) |
+| `lambda.js` | Runs the app on Lambda (serverless-http), after loading the secrets |
+| `config/secrets.js` | Reads the Neon link and Calendarific key from Secrets Manager |
 | `infra/iam/trust-policy.json` | Only Lambda may use the role |
 | `infra/iam/favorites-alerts-policy.json` | What the role may do (least privilege) |
 | `infra/deploy.sh` | Builds everything on Floci or real AWS |
+
+### Where the secrets live
+
+| Place | What it holds |
+|---|---|
+| `.env` on your PC | The real values. Never pushed to GitHub. |
+| Secrets Manager, secret `favorites-alerts/app` | The same values, on AWS. Only this Lambda's role may read it. |
+| Lambda settings | Only `SECRET_ID=favorites-alerts/app`, `CORS_ORIGINS`, `NODE_ENV`. No passwords. |
+
+To change a key (for example after a leak), edit `.env` and run `bash infra/deploy.sh` again.

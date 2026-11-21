@@ -8,7 +8,7 @@ const bestzip = require('bestzip');
 
 const root = path.join(__dirname, '..');
 const build = path.join(root, 'build');
-const files = ['app.js', 'lambda.js', 'package.json', 'package-lock.json',
+const files = ['app.js', 'lambda.js', 'package.json', 'package-lock.json', 'config',
   'controllers', 'routes', 'services', 'middleware', 'db'];
 
 async function main() {

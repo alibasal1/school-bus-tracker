@@ -11,6 +11,7 @@ FN=favorites-alerts-api
 ROLE=favorites-alerts-api-role
 POLICY=favorites-alerts-access
 API_NAME=favorites-alerts-http-api
+SECRET_NAME=favorites-alerts/app
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
 
@@ -23,22 +24,41 @@ POLICY_ARN=arn:aws:iam::$ACCOUNT:policy/$POLICY
 if ! aws iam get-policy --policy-arn $POLICY_ARN >/dev/null 2>&1; then
   aws iam create-policy --policy-name $POLICY \
     --policy-document file://infra/iam/favorites-alerts-policy.json >/dev/null
+else
+  # Policy exists: save the new version from the file (keep at most 5 versions)
+  for V in $(aws iam list-policy-versions --policy-arn $POLICY_ARN \
+      --query "Versions[?IsDefaultVersion==\`false\`].VersionId" --output text); do
+    aws iam delete-policy-version --policy-arn $POLICY_ARN --version-id $V
+  done
+  aws iam create-policy-version --policy-arn $POLICY_ARN --set-as-default \
+    --policy-document file://infra/iam/favorites-alerts-policy.json >/dev/null
 fi
 aws iam attach-role-policy --role-name $ROLE --policy-arn $POLICY_ARN
 
 echo "== 2. Build lambda.zip"
 npm run zip --silent
 
-echo "== 3. Lambda settings from .env (the file itself is never uploaded)"
+echo "== 3. Secrets Manager: the Neon link and Calendarific key go in one secret"
 [ -f .env ] || { echo "Missing .env. Copy .env.example to .env first."; exit 1; }
 mkdir -p out
 node -e "
 require('dotenv').config();
-const v = { NODE_ENV: 'production',
-  DATABASE_URL: process.env.DATABASE_URL,
-  CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '',
+if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is empty in .env'); process.exit(1); }
+const secret = { DATABASE_URL: process.env.DATABASE_URL,
+  CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '' };
+require('fs').writeFileSync('out/secret.json', JSON.stringify(secret));
+const v = { NODE_ENV: 'production', SECRET_ID: '$SECRET_NAME',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:5173' };
 require('fs').writeFileSync('out/lambda-env.json', JSON.stringify({ Variables: v }));"
+if aws secretsmanager describe-secret --secret-id $SECRET_NAME >/dev/null 2>&1; then
+  aws secretsmanager put-secret-value --secret-id $SECRET_NAME \
+    --secret-string file://out/secret.json >/dev/null
+else
+  aws secretsmanager create-secret --name $SECRET_NAME \
+    --description "Neon link and Calendarific key for favorites-alerts-api" \
+    --secret-string file://out/secret.json >/dev/null
+fi
+rm -f out/secret.json                    # it holds secrets, do not keep it
 
 echo "== 4. Lambda function $FN"
 if aws lambda get-function --function-name $FN >/dev/null 2>&1; then
@@ -55,7 +75,7 @@ else
 fi
 aws lambda wait function-active-v2 --function-name $FN
 aws lambda wait function-updated-v2 --function-name $FN
-rm -f out/lambda-env.json                # it holds secrets, do not keep it
+rm -f out/lambda-env.json
 
 echo "== 5. API Gateway (the front door): only our routes reach Lambda"
 API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
