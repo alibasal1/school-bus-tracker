@@ -63,7 +63,8 @@ Put the frontend's Vercel link in `CORS_ORIGINS`.
 ## Deploy to AWS on Floci (Lab 7)
 
 Floci is a free copy of AWS on your laptop. One script builds everything:
-IAM role and policy, the secret in Secrets Manager, the Lambda function, and the API Gateway in front of it.
+IAM role and policy, the secret in Secrets Manager, the Lambda function, the API Gateway in front of it,
+and an EventBridge rule that runs the daily holiday job.
 
 ```
 docker compose -f infra/floci/docker-compose.yml up -d
@@ -81,6 +82,7 @@ Run `bash infra/deploy.sh` again after every code change. It updates the same fu
 | `app.js` | The Express app (no listen) |
 | `server.js` | Runs the app on your PC |
 | `lambda.js` | Runs the app on Lambda (serverless-http), after loading the secrets |
+| `infra/events/daily-holiday.json` | The same event EventBridge sends, to test the job by hand |
 | `config/secrets.js` | Reads the Neon link and Calendarific key from Secrets Manager |
 | `infra/iam/trust-policy.json` | Only Lambda may use the role |
 | `infra/iam/favorites-alerts-policy.json` | What the role may do (least privilege) |
@@ -95,3 +97,18 @@ Run `bash infra/deploy.sh` again after every code change. It updates the same fu
 | Lambda settings | Only `SECRET_ID=favorites-alerts/app`, `CORS_ORIGINS`, `NODE_ENV`. No passwords. |
 
 To change a key (for example after a leak), edit `.env` and run `bash infra/deploy.sh` again.
+
+### Daily holiday alert (EventBridge)
+
+Rule `favorites-alerts-daily-holiday` runs every day at 18:00 UTC (8 PM Cairo).
+It calls the same Lambda with an event whose `source` is `aws.events`. `lambda.js` sees this and runs
+`sendHolidayAlertsToAllParents()`: if tomorrow is a holiday, every parent with a favorite gets an alert.
+Nobody has to open the app first, and the admin does nothing.
+
+Test it by hand:
+```
+aws lambda invoke --function-name favorites-alerts-api \
+  --payload file://infra/events/daily-holiday.json \
+  --cli-binary-format raw-in-base64-out out/result.json
+cat out/result.json
+```

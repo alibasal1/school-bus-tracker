@@ -12,6 +12,7 @@ ROLE=favorites-alerts-api-role
 POLICY=favorites-alerts-access
 API_NAME=favorites-alerts-http-api
 SECRET_NAME=favorites-alerts/app
+RULE=favorites-alerts-daily-holiday
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
 
@@ -101,6 +102,16 @@ if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
     --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT:$API_ID/*" >/dev/null
 fi
 
+echo "== 6. EventBridge: every day at 18:00 UTC (8 PM Cairo) run the holiday job"
+aws events put-rule --name $RULE \
+  --schedule-expression "cron(0 18 * * ? *)" \
+  --description "Send tomorrow's holiday alerts to parents" >/dev/null
+aws events put-targets --rule $RULE \
+  --targets "Id"="1","Arn"="arn:aws:lambda:$REGION:$ACCOUNT:function:$FN" >/dev/null
+aws lambda add-permission --function-name $FN --statement-id eventbridge-daily-holiday \
+  --action lambda:InvokeFunction --principal events.amazonaws.com \
+  --source-arn "arn:aws:events:$REGION:$ACCOUNT:rule/$RULE" >/dev/null 2>&1 || true
+
 if [ "$ACCOUNT" = "000000000000" ]; then
   API_URL=http://$API_ID.execute-api.localhost.floci.io:4566
 else
@@ -108,8 +119,15 @@ else
 fi
 echo "API_URL=$API_URL" > out/api-url.txt
 
-echo "== 6. Test"
+echo "== 7. Test the API"
 curl -s --max-time 30 "$API_URL/api/health" || echo "(no answer yet: wait a few seconds and open the address below in your browser)"; echo
+
+echo "== 8. Test the daily job now (same event EventBridge sends)"
+aws lambda invoke --function-name $FN \
+  --payload file://infra/events/daily-holiday.json \
+  --cli-binary-format raw-in-base64-out out/daily-holiday-result.json >/dev/null \
+  && cat out/daily-holiday-result.json; echo
+
 echo
 echo "Done. Your API address: $API_URL"
 echo "Logs: aws logs tail /aws/lambda/$FN --since 15m --format short"
