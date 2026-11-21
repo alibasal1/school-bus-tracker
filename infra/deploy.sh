@@ -15,8 +15,22 @@ SECRET_NAME=favorites-alerts/app
 RULE=favorites-alerts-daily-holiday
 QUEUE=favorites-alerts-queue
 DLQ=favorites-alerts-dlq
+KEY_ALIAS=alias/favorites-alerts
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
+
+echo "== 0. KMS: our own key that encrypts the secret, rotated every year"
+KEY_ID=$(aws kms list-aliases --query "Aliases[?AliasName=='$KEY_ALIAS'].TargetKeyId | [0]" --output text)
+if [ -z "$KEY_ID" ] || [ "$KEY_ID" = "None" ]; then
+  KEY_ID=$(aws kms create-key --description "Encrypts the favorites-alerts secret" \
+    --query KeyMetadata.KeyId --output text)
+  aws kms create-alias --alias-name $KEY_ALIAS --target-key-id $KEY_ID
+fi
+aws kms enable-key-rotation --key-id $KEY_ID
+KEY_ARN=$(aws kms describe-key --key-id $KEY_ID --query KeyMetadata.Arn --output text)
+mkdir -p out
+# The policy file says KMS_KEY_ARN; put the real key address in a copy
+sed "s#KMS_KEY_ARN#$KEY_ARN#" infra/iam/favorites-alerts-policy.json > out/policy.json
 
 echo "== 1. IAM role (who may wear the badge) and policy (what it opens)"
 if ! aws iam get-role --role-name $ROLE >/dev/null 2>&1; then
@@ -26,7 +40,7 @@ fi
 POLICY_ARN=arn:aws:iam::$ACCOUNT:policy/$POLICY
 if ! aws iam get-policy --policy-arn $POLICY_ARN >/dev/null 2>&1; then
   aws iam create-policy --policy-name $POLICY \
-    --policy-document file://infra/iam/favorites-alerts-policy.json >/dev/null
+    --policy-document file://out/policy.json >/dev/null
 else
   # Policy exists: save the new version from the file (keep at most 5 versions)
   for V in $(aws iam list-policy-versions --policy-arn $POLICY_ARN \
@@ -34,7 +48,7 @@ else
     aws iam delete-policy-version --policy-arn $POLICY_ARN --version-id $V
   done
   aws iam create-policy-version --policy-arn $POLICY_ARN --set-as-default \
-    --policy-document file://infra/iam/favorites-alerts-policy.json >/dev/null
+    --policy-document file://out/policy.json >/dev/null
 fi
 aws iam attach-role-policy --role-name $ROLE --policy-arn $POLICY_ARN
 
@@ -55,12 +69,12 @@ const v = { NODE_ENV: 'production', SECRET_ID: '$SECRET_NAME',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:5173' };
 require('fs').writeFileSync('out/lambda-env.json', JSON.stringify({ Variables: v }));"
 if aws secretsmanager describe-secret --secret-id $SECRET_NAME >/dev/null 2>&1; then
-  aws secretsmanager put-secret-value --secret-id $SECRET_NAME \
-    --secret-string file://out/secret.json >/dev/null
+  aws secretsmanager update-secret --secret-id $SECRET_NAME \
+    --kms-key-id $KEY_ARN --secret-string file://out/secret.json >/dev/null
 else
   aws secretsmanager create-secret --name $SECRET_NAME \
     --description "Neon link and Calendarific key for favorites-alerts-api" \
-    --secret-string file://out/secret.json >/dev/null
+    --kms-key-id $KEY_ARN --secret-string file://out/secret.json >/dev/null
 fi
 rm -f out/secret.json                    # it holds secrets, do not keep it
 

@@ -23,6 +23,11 @@
         "sqs:GetQueueAttributes"
       ],
       "Resource": "arn:aws:sqs:*:*:favorites-alerts-queue"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "KMS_KEY_ARN"
     }
   ]
 }

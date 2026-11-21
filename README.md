@@ -93,7 +93,7 @@ Run `bash infra/deploy.sh` again after every code change. It updates the same fu
 | Place | What it holds |
 |---|---|
 | `.env` on your PC | The real values. Never pushed to GitHub. |
-| Secrets Manager, secret `favorites-alerts/app` | The same values, on AWS. Only this Lambda's role may read it. |
+| Secrets Manager, secret `favorites-alerts/app` | The same values, on AWS, encrypted with our own KMS key `alias/favorites-alerts` (rotated every year). Only this Lambda's role may read and decrypt it. |
 | Lambda settings | Only `SECRET_ID=favorites-alerts/app`, `CORS_ORIGINS`, `NODE_ENV`. No passwords. |
 
 To change a key (for example after a leak), edit `.env` and run `bash infra/deploy.sh` again.
