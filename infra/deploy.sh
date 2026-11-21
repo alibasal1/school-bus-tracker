@@ -98,22 +98,32 @@ rm -f out/lambda-env.json
 
 echo "== 5. API Gateway (the front door): only our routes reach Lambda"
 API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId | [0]" --output text)
+NEW_API=no
 if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
   API_ID=$(aws apigatewayv2 create-api --name $API_NAME \
     --protocol-type HTTP --query ApiId --output text)
-  INTEGRATION_ID=$(aws apigatewayv2 create-integration --api-id $API_ID \
+  aws apigatewayv2 create-integration --api-id $API_ID \
     --integration-type AWS_PROXY --payload-format-version 2.0 \
-    --integration-uri arn:aws:lambda:$REGION:$ACCOUNT:function:$FN \
-    --query IntegrationId --output text)
-  for ROUTE in "GET /api/health" \
-               "GET /api/favorites" "POST /api/favorites" "DELETE /api/favorites/{id}" \
-               "GET /api/alerts" "PATCH /api/alerts/{id}" \
-               "GET /api/holidays" \
-               "OPTIONS /api/favorites" "OPTIONS /api/favorites/{id}" \
-               "OPTIONS /api/alerts" "OPTIONS /api/alerts/{id}" "OPTIONS /api/holidays"; do
+    --integration-uri arn:aws:lambda:$REGION:$ACCOUNT:function:$FN >/dev/null
+  NEW_API=yes
+fi
+INTEGRATION_ID=$(aws apigatewayv2 get-integrations --api-id $API_ID \
+  --query "Items[0].IntegrationId" --output text)
+EXISTING=$(aws apigatewayv2 get-routes --api-id $API_ID --query "Items[].RouteKey" --output text)
+# Every route we allow. Anything else gets 404 from API Gateway, before Lambda runs.
+for ROUTE in "GET /api/health" \
+             "GET /api/favorites" "POST /api/favorites" "DELETE /api/favorites/{id}" \
+             "GET /api/favorites/options" \
+             "GET /api/alerts" "PATCH /api/alerts/{id}" \
+             "GET /api/holidays" \
+             "OPTIONS /api/favorites" "OPTIONS /api/favorites/{id}" "OPTIONS /api/favorites/options" \
+             "OPTIONS /api/alerts" "OPTIONS /api/alerts/{id}" "OPTIONS /api/holidays"; do
+  if ! printf '%s' "$EXISTING" | tr -d '\r' | tr '\t' '\n' | grep -qxF "$ROUTE"; then
     aws apigatewayv2 create-route --api-id $API_ID --route-key "$ROUTE" \
       --target integrations/$INTEGRATION_ID --query RouteKey --output text
-  done
+  fi
+done
+if [ "$NEW_API" = "yes" ]; then
   aws apigatewayv2 create-stage --api-id $API_ID --stage-name '$default' --auto-deploy >/dev/null
   aws lambda add-permission --function-name $FN --statement-id apigw-invoke \
     --action lambda:InvokeFunction --principal apigateway.amazonaws.com \

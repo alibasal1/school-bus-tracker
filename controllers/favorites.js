@@ -31,6 +31,15 @@ async function listFavorites(req, res, next) {
   }
 }
 
+async function listOptions(req, res, next) {
+  try {
+    const routes = await favorites.listOptions();
+    return res.status(200).json({ routes });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function addFavorite(req, res, next) {
   if (!hasJsonBody(req, res)) return undefined;
   const { routeId, stopId = null } = req.body;
@@ -121,6 +130,7 @@ async function listHolidays(req, res, next) {
 
 module.exports = {
   listFavorites,
+  listOptions,
   addFavorite,
   removeFavorite,
   listAlerts,

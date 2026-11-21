@@ -96,6 +96,27 @@ async function addFavorite(userId, routeId, stopId) {
   }
 }
 
+// Routes and their stops, so a parent can pick one to save (read only).
+async function listOptions() {
+  const rows = await sql`
+    SELECT r.id AS "routeId", r.code, r.name AS "routeName",
+           s.id AS "stopId", s.name AS "stopName"
+    FROM routes r
+    LEFT JOIN stops s ON s.route_id = r.id
+    ORDER BY r.name, s.stop_order
+  `;
+  const routes = [];
+  for (const row of rows) {
+    let route = routes.find((item) => item.id === row.routeId);
+    if (!route) {
+      route = { id: row.routeId, code: row.code, name: row.routeName, stops: [] };
+      routes.push(route);
+    }
+    if (row.stopId) route.stops.push({ id: row.stopId, name: row.stopName });
+  }
+  return routes;
+}
+
 async function removeFavorite(userId, favoriteId) {
   const rows = await sql`
     DELETE FROM favorites
@@ -108,5 +129,6 @@ async function removeFavorite(userId, favoriteId) {
 module.exports = {
   listFavorites,
   addFavorite,
+  listOptions,
   removeFavorite
 };

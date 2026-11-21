@@ -29,6 +29,7 @@ jest.mock('../middleware/auth', () => ({
 jest.mock('../services/favorites', () => ({
   listFavorites: jest.fn(),
   addFavorite: jest.fn(),
+  listOptions: jest.fn(),
   removeFavorite: jest.fn()
 }));
 
@@ -59,6 +60,9 @@ beforeEach(() => {
   favoritesService.listFavorites.mockResolvedValue([]);
   favoritesService.addFavorite.mockResolvedValue({ id: favoriteId, routeId, stopId: null });
   favoritesService.removeFavorite.mockResolvedValue(true);
+  favoritesService.listOptions.mockResolvedValue([
+    { id: routeId, code: 'R1', name: 'Route 1', stops: [{ id: favoriteId, name: 'Stop A' }] }
+  ]);
   alertsService.ensureTomorrowHolidayAlert.mockResolvedValue(null);
   alertsService.listAlerts.mockResolvedValue([]);
   alertsService.markAlertRead.mockResolvedValue({
@@ -171,5 +175,17 @@ describe('favorites, alerts, and holidays endpoints', () => {
       '11111111-1111-4111-8111-111111111111',
       true
     );
+  });
+
+  test('lists routes and stops a parent can save', async () => {
+    const response = await require('supertest')(app).get('/api/favorites/options').set(parent);
+    expect(response.status).toBe(200);
+    expect(response.body.routes[0].stops[0].name).toBe('Stop A');
+  });
+
+  test('only parents can list the options', async () => {
+    const response = await require('supertest')(app)
+      .get('/api/favorites/options').set({ Authorization: 'Bearer admin' });
+    expect(response.status).toBe(403);
   });
 });
