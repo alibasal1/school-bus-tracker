@@ -130,4 +130,4 @@ aws lambda invoke --function-name $FN \
 
 echo
 echo "Done. Your API address: $API_URL"
-echo "Logs: aws logs tail /aws/lambda/$FN --since 15m --format short"
+echo "Logs: MSYS_NO_PATHCONV=1 aws logs tail /aws/lambda/$FN --since 15m --format short"
