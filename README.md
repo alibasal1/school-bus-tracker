@@ -59,3 +59,84 @@ Run the files in this order:
 
 One Vercel project for this repo. Add the values from `.env.example` in the Vercel dashboard.
 Put the frontend's Vercel link in `CORS_ORIGINS`.
+
+## Deploy to AWS on Floci (Lab 7)
+
+Floci is a free copy of AWS on your laptop. One script builds everything:
+IAM role and policy, the secret in Secrets Manager, the Lambda function, the API Gateway in front of it,
+an EventBridge rule that runs the daily holiday job, and the SQS alerts queue.
+
+```
+docker compose -f infra/floci/docker-compose.yml up -d
+export AWS_PROFILE=floci
+bash infra/deploy.sh
+```
+
+The script prints your API address, for example `http://abc123.execute-api.localhost.floci.io:4566`.
+Open `<address>/api/health`: you must see `"runtime":"lambda"`.
+
+Run `bash infra/deploy.sh` again after every code change. It updates the same function.
+
+| File | What it is |
+|---|---|
+| `app.js` | The Express app (no listen) |
+| `server.js` | Runs the app on your PC |
+| `lambda.js` | Runs the app on Lambda (serverless-http), after loading the secrets |
+| `infra/events/daily-holiday.json` | The same event EventBridge sends, to test the job by hand |
+| `config/secrets.js` | Reads the Neon link and Calendarific key from Secrets Manager |
+| `infra/iam/trust-policy.json` | Only Lambda may use the role |
+| `infra/iam/favorites-alerts-policy.json` | What the role may do (least privilege) |
+| `infra/deploy.sh` | Builds everything on Floci or real AWS |
+
+### Where the secrets live
+
+| Place | What it holds |
+|---|---|
+| `.env` on your PC | The real values. Never pushed to GitHub. |
+| Secrets Manager, secret `favorites-alerts/app` | The same values, on AWS, encrypted with our own KMS key `alias/favorites-alerts` (rotated every year). Only this Lambda's role may read and decrypt it. |
+| Lambda settings | Only `SECRET_ID=favorites-alerts/app`, `CORS_ORIGINS`, `NODE_ENV`. No passwords. |
+
+To change a key (for example after a leak), edit `.env` and run `bash infra/deploy.sh` again.
+
+### Daily holiday alert (EventBridge)
+
+Rule `favorites-alerts-daily-holiday` runs every day at 18:00 UTC (8 PM Cairo).
+It calls the same Lambda with an event whose `source` is `aws.events`. `lambda.js` sees this and runs
+`sendHolidayAlertsToAllParents()`: if tomorrow is a holiday, every parent with a favorite gets an alert.
+Nobody has to open the app first, and the admin does nothing.
+
+Test it by hand:
+```
+aws lambda invoke --function-name favorites-alerts-api \
+  --payload file://infra/events/daily-holiday.json \
+  --cli-binary-format raw-in-base64-out out/result.json
+cat out/result.json
+```
+
+### Alerts queue (SQS)
+
+Yehia and Ahmed are in other repos, so they cannot call `createAlert` directly.
+They send a message to `favorites-alerts-queue`, and this Lambda creates the alerts
+(`services/alertsQueue.js`). Messages that fail 3 times move to `favorites-alerts-dlq`.
+How to send a message: see [docs/alerts-queue.md](docs/alerts-queue.md).
+
+### Alarms (CloudWatch + SNS)
+
+Two CloudWatch alarms send a message to the SNS topic `favorites-alerts-ops`:
+- `favorites-alerts-lambda-errors`: the Lambda failed at least once in 5 minutes.
+- `favorites-alerts-dlq-not-empty`: a queue message failed 3 times and is in the dead-letter queue.
+
+To get the alarms by email: `ALARM_EMAIL=you@example.com bash infra/deploy.sh`, then confirm the email.
+
+## AWS services used and why
+
+| Service | Why | Lecture |
+|---|---|---|
+| Lambda | Runs the API only when a request comes, no server to manage | L3 |
+| API Gateway | One web address, only our routes reach the code | L4, L9 |
+| IAM role and policy | The function may do only what it needs (least privilege) | L6 |
+| Secrets Manager | Neon link and Calendarific key are not in code or Lambda settings | L6 |
+| KMS | Our own key encrypts the secret, rotated every year | L6, L7 |
+| EventBridge | Runs the day-before holiday alert every evening | L3 |
+| SQS + dead-letter queue | Other services send alerts without calling our code; failed messages are kept | L8 |
+| CloudWatch Logs and alarms, SNS | See what happened, and get told when something fails | L8 |

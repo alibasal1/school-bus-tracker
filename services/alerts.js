@@ -54,6 +54,20 @@ async function ensureTomorrowHolidayAlert(userId) {
   return createAlert(userId, 'holiday', message);
 }
 
+// Run by EventBridge every evening (see lambda.js): every parent with a favorite
+// gets the "tomorrow is a holiday" alert, without anyone opening the app.
+async function sendHolidayAlertsToAllParents() {
+  const parents = await sql`
+    SELECT DISTINCT user_id
+    FROM favorites
+  `;
+  let sent = 0;
+  for (const parent of parents) {
+    if (await ensureTomorrowHolidayAlert(parent.user_id)) sent += 1;
+  }
+  return { parents: parents.length, sent };
+}
+
 async function listAlerts(userId, unread) {
   if (unread === true) {
     return sql`
@@ -85,6 +99,7 @@ module.exports = {
   createAlert,
   createAlertsForRoute,
   ensureTomorrowHolidayAlert,
+  sendHolidayAlertsToAllParents,
   listAlerts,
   markAlertRead
 };
