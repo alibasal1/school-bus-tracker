@@ -13,6 +13,8 @@ POLICY=favorites-alerts-access
 API_NAME=favorites-alerts-http-api
 SECRET_NAME=favorites-alerts/app
 RULE=favorites-alerts-daily-holiday
+QUEUE=favorites-alerts-queue
+DLQ=favorites-alerts-dlq
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
 
@@ -42,6 +44,7 @@ npm run zip --silent
 echo "== 3. Secrets Manager: the Neon link and Calendarific key go in one secret"
 [ -f .env ] || { echo "Missing .env. Copy .env.example to .env first."; exit 1; }
 mkdir -p out
+: > out/api-url.txt
 node -e "
 require('dotenv').config();
 if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is empty in .env'); process.exit(1); }
@@ -112,17 +115,39 @@ aws lambda add-permission --function-name $FN --statement-id eventbridge-daily-h
   --action lambda:InvokeFunction --principal events.amazonaws.com \
   --source-arn "arn:aws:events:$REGION:$ACCOUNT:rule/$RULE" >/dev/null 2>&1 || true
 
+echo "== 7. SQS: the alerts queue (Yehia and Ahmed send here), plus a dead-letter queue"
+DLQ_URL=$(aws sqs create-queue --queue-name $DLQ --query QueueUrl --output text)
+DLQ_ARN=$(aws sqs get-queue-attributes --queue-url $DLQ_URL \
+  --attribute-names QueueArn --query Attributes.QueueArn --output text)
+# After 3 failed tries a message moves to the dead-letter queue instead of being lost
+node -e "
+const redrive = JSON.stringify({ deadLetterTargetArn: '$DLQ_ARN', maxReceiveCount: '3' });
+require('fs').writeFileSync('out/queue-attributes.json',
+  JSON.stringify({ VisibilityTimeout: '30', RedrivePolicy: redrive }));"
+QUEUE_URL=$(aws sqs create-queue --queue-name $QUEUE --query QueueUrl --output text)
+aws sqs set-queue-attributes --queue-url $QUEUE_URL --attributes file://out/queue-attributes.json
+QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url $QUEUE_URL \
+  --attribute-names QueueArn --query Attributes.QueueArn --output text)
+MAPPING=$(aws lambda list-event-source-mappings --function-name $FN \
+  --event-source-arn $QUEUE_ARN --query "EventSourceMappings[0].UUID" --output text)
+if [ -z "$MAPPING" ] || [ "$MAPPING" = "None" ]; then
+  aws lambda create-event-source-mapping --function-name $FN \
+    --event-source-arn $QUEUE_ARN --batch-size 10 >/dev/null
+fi
+echo "QUEUE_URL=$QUEUE_URL" >> out/api-url.txt
+echo "Queue: $QUEUE_URL"
+
 if [ "$ACCOUNT" = "000000000000" ]; then
   API_URL=http://$API_ID.execute-api.localhost.floci.io:4566
 else
   API_URL=https://$API_ID.execute-api.$REGION.amazonaws.com
 fi
-echo "API_URL=$API_URL" > out/api-url.txt
+echo "API_URL=$API_URL" >> out/api-url.txt
 
-echo "== 7. Test the API"
+echo "== 8. Test the API"
 curl -s --max-time 30 "$API_URL/api/health" || echo "(no answer yet: wait a few seconds and open the address below in your browser)"; echo
 
-echo "== 8. Test the daily job now (same event EventBridge sends)"
+echo "== 9. Test the daily job now (same event EventBridge sends)"
 aws lambda invoke --function-name $FN \
   --payload file://infra/events/daily-holiday.json \
   --cli-binary-format raw-in-base64-out out/daily-holiday-result.json >/dev/null \
@@ -130,4 +155,5 @@ aws lambda invoke --function-name $FN \
 
 echo
 echo "Done. Your API address: $API_URL"
+echo "Queue for Yehia and Ahmed: $QUEUE_URL"
 echo "Logs: MSYS_NO_PATHCONV=1 aws logs tail /aws/lambda/$FN --since 15m --format short"

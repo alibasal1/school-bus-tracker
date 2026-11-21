@@ -4,9 +4,11 @@ jest.mock('../services/alerts', () => ({
   sendHolidayAlertsToAllParents: jest.fn().mockResolvedValue({ parents: 2, sent: 1 })
 }));
 jest.mock('../db', () => jest.fn());
+jest.mock('../services/alertsQueue', () => ({ handleQueueMessage: jest.fn().mockResolvedValue(1) }));
 
 const { loadSecrets } = require('../config/secrets');
 const alerts = require('../services/alerts');
+const { handleQueueMessage } = require('../services/alertsQueue');
 const { handler } = require('../lambda');
 
 function webEvent(path) {
@@ -27,6 +29,14 @@ describe('lambda handler', () => {
     const result = await handler(webEvent('/api/health'), {});
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body).service).toBe('favorites-alerts');
+  });
+
+  test('SQS messages go to the alerts queue handler', async () => {
+    const result = await handler({ Records: [
+      { eventSource: 'aws:sqs', body: '{"a":1}' }, { eventSource: 'aws:sqs', body: '{"b":2}' }
+    ] }, {});
+    expect(handleQueueMessage).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ messages: 2, created: 2 });
   });
 
   test('secrets are loaded only once', () => {

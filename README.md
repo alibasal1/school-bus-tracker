@@ -64,7 +64,7 @@ Put the frontend's Vercel link in `CORS_ORIGINS`.
 
 Floci is a free copy of AWS on your laptop. One script builds everything:
 IAM role and policy, the secret in Secrets Manager, the Lambda function, the API Gateway in front of it,
-and an EventBridge rule that runs the daily holiday job.
+an EventBridge rule that runs the daily holiday job, and the SQS alerts queue.
 
 ```
 docker compose -f infra/floci/docker-compose.yml up -d
@@ -112,3 +112,10 @@ aws lambda invoke --function-name favorites-alerts-api \
   --cli-binary-format raw-in-base64-out out/result.json
 cat out/result.json
 ```
+
+### Alerts queue (SQS)
+
+Yehia and Ahmed are in other repos, so they cannot call `createAlert` directly.
+They send a message to `favorites-alerts-queue`, and this Lambda creates the alerts
+(`services/alertsQueue.js`). Messages that fail 3 times move to `favorites-alerts-dlq`.
+How to send a message: see [docs/alerts-queue.md](docs/alerts-queue.md).
