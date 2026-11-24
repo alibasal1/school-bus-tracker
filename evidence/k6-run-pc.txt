@@ -1,0 +1,54 @@
+$ npm start   # Express on the PC, port 3003, no Floci, no API Gateway, no Lambda
+$ k6 run -e API_URL=http://localhost:3003 -e TOKEN=<PARENT1_TOKEN> k6/favorites-load.js
+# 2026-11-24T18:21:09Z, k6.exe v2.4.0, Windows 11, same script, stages and thresholds as evidence/k6-run.txt
+# run warm: 5 x GET /api/health and 1 x GET /api/holidays just before the run:
+# warm-up GET /api/health -> 200 0.001533s
+# warm-up GET /api/health -> 200 0.001325s
+# warm-up GET /api/health -> 200 0.001363s
+# warm-up GET /api/health -> 200 0.001338s
+# warm-up GET /api/health -> 200 0.001348s
+# warm-up GET /api/holidays -> 200 2.007592s
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+     execution: local
+        script: k6/favorites-load.js
+        output: -
+     scenarios: (100.00%) 1 scenario, 100 max VUs, 1m40s max duration (incl. graceful stop):
+              * default: Up to 100 looping VUs for 1m10s over 3 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+  █ THRESHOLDS 
+    http_req_duration
+    ✓ 'p(95)<500' p(95)=1.13ms
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+  █ TOTAL RESULTS 
+    checks_total.......: 5248    73.913183/s
+    checks_succeeded...: 100.00% 5248 out of 5248
+    checks_failed......: 0.00%   0 out of 5248
+    ✓ health is 200
+    ✓ holidays is 200 or 429
+    CUSTOM
+    ok_200_duration................: avg=15.86ms min=0s       med=505.49µs max=1.26s p(90)=1.02ms   p(95)=1.26ms
+    rate_limited_429...............: 2537   35.731278/s
+    HTTP
+    http_req_duration..............: avg=8.41ms  min=0s       med=507.65µs max=1.26s p(90)=930.81µs p(95)=1.13ms
+      { expected_response:true }...: avg=8.41ms  min=0s       med=507.65µs max=1.26s p(90)=930.81µs p(95)=1.13ms
+    http_req_failed................: 0.00%  0 out of 5248
+    http_reqs......................: 5248   73.913183/s
+    EXECUTION
+    iteration_duration.............: avg=1s      min=501.48ms med=1s       max=2.3s  p(90)=1.41s    p(95)=1.46s 
+    iterations.....................: 2624   36.956591/s
+    vus............................: 1      min=1         max=99 
+    vus_max........................: 100    min=100       max=100
+    NETWORK
+    data_received..................: 2.9 MB 41 kB/s
+    data_sent......................: 656 kB 9.2 kB/s
+default ✓ [ 100% ] 000/100 VUs  1m10s
+
+# From the server's own per-request log lines for the same period:
+# 2630 x GET /api/health 200 (5 warm-up + 2625), 88 x GET /api/holidays 200 (1 warm-up + 87), 2537 x GET /api/holidays 429,
+# 2537 x SECURITY ... reason=RATE_LIMITED, 0 x 5xx
+# time inside Express for /api/holidays 200: median 435 ms, p95 865 ms, max 2007 ms
