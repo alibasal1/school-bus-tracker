@@ -1,0 +1,19 @@
+# ST-10: secret exposure review
+# 2026-11-24T02:38:43Z
+## 1. Lambda environment variables (names only; each value checked for a secret)
+NODE_ENV: no secret in value
+SECRET_ID: no secret in value
+CORS_ORIGINS: no secret in value
+DATABASE_URL present: false (it is read from Secrets Manager at cold start)
+## 2. Git history (git log --all -p, every commit)
+postgres URLs with a real password: 0
+   (2 other matches are the placeholder postgresql://user:password@host in .env.example)
+AWS access keys (AKIA...): 0
+test session tokens: 0
+.env ever committed: 0
+## 3. CloudWatch Logs /aws/lambda/favorites-alerts-api (88 log events read)
+postgres URLs: 0
+Authorization / Bearer: 0
+test session tokens: 0
+any 64-hex string: 0
+the word password: 0

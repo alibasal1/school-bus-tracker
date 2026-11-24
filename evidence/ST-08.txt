@@ -1,0 +1,9 @@
+# ST-08: bad queue message is dropped and logged, no alert created
+# 2026-11-24T02:36:52Z
+before: {"allAlerts":1,"routeCancelAlerts":0,"processedEventRows":0,"parentsOnTestRoute":1}
+$ aws sqs send-message --queue-url http://localhost:4566/000000000000/favorites-alerts-queue --message-body '{"type":"unknown","message":"x"}'
+704f6703-f7c7-495a-8d9b-2d09eabded62
+after: {"allAlerts":1,"routeCancelAlerts":0,"processedEventRows":0,"parentsOnTestRoute":1}
+# Lambda log lines for this message:
+Alerts queue: dropped a bad message. type must be one of: boarding, almost_dropped, dropped, cancel, trip_change.
+Alerts queue: 1 messages, 0 alerts created
