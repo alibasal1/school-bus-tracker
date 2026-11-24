@@ -1,13 +1,69 @@
-# ST-11: 60 requests to GET /api/health, 20 at a time
-# 2026-11-24T02:38:55Z
-# stage throttling set by infra/deploy.sh: rate 10 req/s, burst 20
-$ seq 60 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}\n' http://22b92e5059.execute-api.localhost.floci.io:4566/api/health | sort | uniq -c
+# ST-11: app-level rate limit (middleware/rateLimit.js), 60 requests per minute per source IP
+# API Gateway stage throttling (rate 10, burst 20) is still set, but Floci does not enforce it,
+# so every 429 below comes from the app layer.
+# The token is read from test-tokens.txt into $PARENT1_TOKEN and is never written here.
+
+# --- first attempt, 8 requests in parallel ---
+# Result: no 429. Floci started several copies of the Lambda (docker ps showed 4 favorites-alerts-api
+# containers right after), so the 80 requests were spread over the copies and no copy saw more than 60.
+# This is the per-copy limit described in middleware/rateLimit.js and docs/security-controls.md.
+
+## Parallel run 1: 80 requests to GET /api/alerts with the PARENT1 token, 8 at a time
+# start 2026-11-24T18:00:27Z
+$ seq 80 | xargs -P 8 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" $API/api/alerts | sort | uniq -c
+     80 200
+took 13460 ms
+
+# one more request right after, with headers (the 429 body and Retry-After):
+$ curl -s -i -H "Authorization: Bearer $PARENT1_TOKEN" $API/api/alerts
+HTTP/1.1 200 OK
+content-type: application/json; charset=utf-8
+
+# /api/health is never limited, even now:
+GET /api/health -> 200
+
+# waiting 65 s so the 60-second window is empty again
+
+## Parallel run 2: 80 requests, each with a different fake X-Forwarded-For
+# start 2026-11-24T18:01:46Z
+$ seq 80 | xargs -P 8 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" -H "X-Forwarded-For: 10.9.0.{}" $API/api/alerts | sort | uniq -c
+     80 200
+took 12423 ms
+
+# SECURITY lines with reason=RATE_LIMITED in CloudWatch Logs (last 5 min):
+count: 0
+first: none
+
+
+# --- second attempt, one request after the other, so one warm copy gets them all ---
+
+# waiting 65 s so the window is empty
+## Sequential run 1: 80 requests to GET /api/alerts with the PARENT1 token, one after the other (-P 1)
+# start 2026-11-24T18:03:27Z
+$ seq 80 | xargs -P 1 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" $API/api/alerts | sort | uniq -c
      60 200
-# stage settings as stored:
-{
-    "ThrottlingBurstLimit": 20,
-    "ThrottlingRateLimit": 10.0
-}
-# second try: 200 requests, 50 at a time (02:39:05Z)
-    200 200
-took 8807 ms
+     20 429
+took 54281 ms
+
+# one more request right after, with headers (the 429 body and Retry-After):
+$ curl -s -i -H "Authorization: Bearer $PARENT1_TOKEN" $API/api/alerts
+HTTP/1.1 429 Too Many Requests
+content-type: application/json; charset=utf-8
+retry-after: 6
+{"error":{"code":"RATE_LIMITED","message":"Too many requests. Try again in 6 seconds."}}
+
+# /api/health is never limited, even now:
+GET /api/health -> 200
+
+# waiting 65 s so the 60-second window is empty again
+
+## Sequential run 2: 80 requests, each with a different fake X-Forwarded-For
+# start 2026-11-24T18:05:27Z
+$ seq 80 | xargs -P 1 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" -H "X-Forwarded-For: 10.9.0.{}" $API/api/alerts | sort | uniq -c
+     60 200
+     20 429
+took 52365 ms
+
+# SECURITY lines with reason=RATE_LIMITED in CloudWatch Logs (last 5 min):
+count: 41
+first: 2026-11-24T18:04:18.836Z	d5e0653b-4f78-4e85-bdd6-e03fb2ff1ba2	INFO	SECURITY denied GET /api/alerts status=429 reason=RATE_LIMITED user=anonymous
