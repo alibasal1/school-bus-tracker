@@ -60,6 +60,24 @@ describe('listFavorites', () => {
 
 describe('listOptions', () => {
 
+  test('falls back to every route when routes.is_active is missing', async () => {
+    const missing = Object.assign(new Error('column r.is_active does not exist'), { code: '42703' });
+    sql.mockRejectedValueOnce(missing).mockResolvedValue([
+      { routeId: 'r1', routeCode: 'R1', routeName: 'Maadi', stopId: 's1', stopName: 'Gate 2', stopOrder: 1 }
+    ]);
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const routes = await favorites.listOptions();
+    expect(routes).toHaveLength(1);
+    expect(queryText(sql.mock.calls[0])).toContain('r.is_active');
+    expect(queryText(sql.mock.calls[1])).not.toContain('r.is_active');
+
+    // The next request goes straight to the query without the column.
+    await favorites.listOptions();
+    expect(queryText(sql.mock.calls[2])).not.toContain('r.is_active');
+    console.error.mockRestore();
+  });
+
   test('groups the rows into one entry per route, and drops empty stops', async () => {
     sql.mockResolvedValue([
       { routeId: 'r1', routeCode: 'R1', routeName: 'Maadi', stopId: 's1', stopName: 'Gate 2', stopOrder: 1 },

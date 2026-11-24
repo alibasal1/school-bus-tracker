@@ -167,8 +167,36 @@ async function removeFavorite(userId, favoriteId) {
 // show. The form used to read Yehia's API directly: going through this service
 // means my page still works when his API is down, and the parent only ever
 // talks to one address.
-async function listOptions() {
-  const rows = await sql`
+//
+// routes.is_active comes with Yehia's newer schema. A Neon database that does
+// not have it yet answered this request with a 500 (42703, undefined_column),
+// which left the form empty. Same fix as service_date above: try the column,
+// and if it is missing, say so once and list every route instead.
+let routesHaveIsActive = true;
+
+async function optionRows() {
+  if (routesHaveIsActive) {
+    try {
+      return await sql`
+        SELECT
+          r.id   AS "routeId",
+          r.code AS "routeCode",
+          r.name AS "routeName",
+          s.id   AS "stopId",
+          s.name AS "stopName",
+          s.stop_order AS "stopOrder"
+        FROM routes r
+        LEFT JOIN stops s ON s.route_id = r.id
+        WHERE r.is_active = TRUE
+        ORDER BY r.code, s.stop_order
+      `;
+    } catch (err) {
+      if (err.code !== UNDEFINED_COLUMN) throw err;
+      console.error('routes.is_active is missing: listing every route until the migration runs.');
+      routesHaveIsActive = false;
+    }
+  }
+  return sql`
     SELECT
       r.id   AS "routeId",
       r.code AS "routeCode",
@@ -178,9 +206,12 @@ async function listOptions() {
       s.stop_order AS "stopOrder"
     FROM routes r
     LEFT JOIN stops s ON s.route_id = r.id
-    WHERE r.is_active = TRUE
     ORDER BY r.code, s.stop_order
   `;
+}
+
+async function listOptions() {
+  const rows = await optionRows();
 
   // One row per stop comes back; the form wants one entry per route.
   const byRoute = new Map();
