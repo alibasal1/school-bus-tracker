@@ -31,6 +31,18 @@ async function listFavorites(req, res, next) {
   }
 }
 
+// GET /api/favorites/options
+// The Save a stop form needs the routes and their stops. It reads them from
+// here, not from the Route & Stop API, so the page has one address to call.
+async function listOptions(req, res, next) {
+  try {
+    const routes = await favorites.listOptions();
+    return res.status(200).json({ routes });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function addFavorite(req, res, next) {
   if (!hasJsonBody(req, res)) return undefined;
   const { routeId, stopId = null } = req.body;
@@ -121,6 +133,7 @@ async function listHolidays(req, res, next) {
 
 module.exports = {
   listFavorites,
+  listOptions,
   addFavorite,
   removeFavorite,
   listAlerts,

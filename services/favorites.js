@@ -17,6 +17,13 @@ function cairoTime() {
   });
 }
 
+// Yehia's trips table gained service_date in his v2 migration. If this Neon
+// database has not run that migration yet, Postgres answers 42703
+// (undefined_column). Asking for the arrival without the date filter is better
+// than a 500, so the page still works and only shows a wider time window.
+const UNDEFINED_COLUMN = '42703';
+let tripsHaveServiceDate = true;
+
 async function listFavorites(userId) {
   const today = cairoDate();
   const currentTime = cairoTime();
@@ -25,7 +32,65 @@ async function listFavorites(userId) {
 
   await alerts.ensureTomorrowHolidayAlert(userId);
 
-  const rows = await sql`
+  const rows = await favoritesWithArrival(userId, today, currentTime);
+
+  return rows.map((row) => ({
+    ...row,
+    arrivalFrom: isHoliday ? null : row.arrivalFrom,
+    arrivalTo: isHoliday ? null : row.arrivalTo,
+    noBusToday: isHoliday
+  }));
+}
+
+async function favoritesWithArrival(userId, today, currentTime) {
+  if (tripsHaveServiceDate) {
+    try {
+      return await favoritesQuery(userId, today, currentTime, true);
+    } catch (err) {
+      if (err.code !== UNDEFINED_COLUMN) throw err;
+      // Say it once, then stop trying the column on every request.
+      console.error('trips.service_date is missing: showing arrivals without the date filter until the migration runs.');
+      tripsHaveServiceDate = false;
+    }
+  }
+  return favoritesQuery(userId, today, currentTime, false);
+}
+
+// The query is written twice on purpose. The neon() helper does not join SQL
+// fragments, and the fallback has to leave the service_date column out of the
+// text completely, not just skip its value.
+function favoritesQuery(userId, today, currentTime, withServiceDate) {
+  if (withServiceDate) {
+    return sql`
+      SELECT
+        f.id,
+        f.route_id AS "routeId",
+        r.name AS "routeName",
+        f.stop_id AS "stopId",
+        s.name AS "stopName",
+        next_stop.arrive_from AS "arrivalFrom",
+        next_stop.arrive_to AS "arrivalTo"
+      FROM favorites f
+      JOIN routes r ON r.id = f.route_id
+      LEFT JOIN stops s ON s.id = f.stop_id
+      LEFT JOIN LATERAL (
+        SELECT ts.arrive_from, ts.arrive_to
+        FROM trip_stops ts
+        JOIN trips t ON t.id = ts.trip_id
+        WHERE ts.stop_id = f.stop_id
+          AND t.route_id = f.route_id
+          AND t.status = 'active'
+          AND t.service_date = ${today}::date
+          AND ts.arrive_to >= ${currentTime}::time
+        ORDER BY ts.arrive_from
+        LIMIT 1
+      ) next_stop ON true
+      WHERE f.user_id = ${userId}::uuid
+      ORDER BY r.name, s.stop_order
+    `;
+  }
+
+  return sql`
     SELECT
       f.id,
       f.route_id AS "routeId",
@@ -51,13 +116,6 @@ async function listFavorites(userId) {
     WHERE f.user_id = ${userId}::uuid
     ORDER BY r.name, s.stop_order
   `;
-
-  return rows.map((row) => ({
-    ...row,
-    arrivalFrom: isHoliday ? null : row.arrivalFrom,
-    arrivalTo: isHoliday ? null : row.arrivalTo,
-    noBusToday: isHoliday
-  }));
 }
 
 async function addFavorite(userId, routeId, stopId) {
@@ -105,8 +163,50 @@ async function removeFavorite(userId, favoriteId) {
   return rows.length > 0;
 }
 
+// Every active route with its stops, so the Save a stop form has something to
+// show. The form used to read Yehia's API directly: going through this service
+// means my page still works when his API is down, and the parent only ever
+// talks to one address.
+async function listOptions() {
+  const rows = await sql`
+    SELECT
+      r.id   AS "routeId",
+      r.code AS "routeCode",
+      r.name AS "routeName",
+      s.id   AS "stopId",
+      s.name AS "stopName",
+      s.stop_order AS "stopOrder"
+    FROM routes r
+    LEFT JOIN stops s ON s.route_id = r.id
+    WHERE r.is_active = TRUE
+    ORDER BY r.code, s.stop_order
+  `;
+
+  // One row per stop comes back; the form wants one entry per route.
+  const byRoute = new Map();
+  for (const row of rows) {
+    if (!byRoute.has(row.routeId)) {
+      byRoute.set(row.routeId, {
+        id: row.routeId,
+        code: row.routeCode,
+        name: row.routeName,
+        stops: []
+      });
+    }
+    if (row.stopId) {
+      byRoute.get(row.routeId).stops.push({
+        id: row.stopId,
+        name: row.stopName,
+        stopOrder: row.stopOrder
+      });
+    }
+  }
+  return [...byRoute.values()];
+}
+
 module.exports = {
   listFavorites,
+  listOptions,
   addFavorite,
   removeFavorite
 };

@@ -84,6 +84,12 @@ Run `bash infra/deploy.sh` again after every code change. It updates the same fu
 | `lambda.js` | Runs the app on Lambda (serverless-http), after loading the secrets |
 | `infra/events/daily-holiday.json` | The same event EventBridge sends, to test the job by hand |
 | `config/secrets.js` | Reads the Neon link and Calendarific key from Secrets Manager |
+| `services/routeEvents.js` | Turns Yehia's trip events into alerts (see `docs/alerts-queue.md`) |
+| `services/processedEvents.js` | Event id idempotency, so a repeated event creates one alert |
+| `middleware/securityHeaders.js` | The response headers the browser enforces |
+| `scripts/make-test-sessions.js` | Test logins until Ahmed's login page is ready |
+| `scripts/check-trips-columns.js` | Checks whether Neon has Yehia's `trips.service_date` |
+| `k6/favorites-load.js` | Load test (see `docs/load-test.md`) |
 | `infra/iam/trust-policy.json` | Only Lambda may use the role |
 | `infra/iam/favorites-alerts-policy.json` | What the role may do (least privilege) |
 | `infra/deploy.sh` | Builds everything on Floci or real AWS |

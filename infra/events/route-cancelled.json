@@ -1,0 +1,13 @@
+{
+  "event_id": "44444444-4444-4444-8444-444444444444",
+  "event_type": "trip.cancelled",
+  "route_id": "REPLACE-WITH-A-REAL-ROUTE-ID",
+  "trip_id": "55555555-5555-4555-8555-555555555555",
+  "occurred_at": "2026-11-24T05:00:00.000Z",
+  "payload": {
+    "service_date": "2026-11-24",
+    "run_type": "morning",
+    "route_code": "R1",
+    "reason": "Bus in the garage"
+  }
+}

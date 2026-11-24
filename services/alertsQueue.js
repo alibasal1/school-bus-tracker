@@ -7,6 +7,8 @@
 // Message for every parent who saved a route (Yehia: cancel, trip_change):
 //   { "type": "cancel", "routeId": "<uuid>", "message": "Route R1 morning trip is cancelled today." }
 const alerts = require('./alerts');
+const routeEvents = require('./routeEvents');
+const processedEvents = require('./processedEvents');
 
 const PARENT_TYPES = ['boarding', 'almost_dropped', 'dropped'];
 const ROUTE_TYPES = ['cancel', 'trip_change'];
@@ -36,6 +38,25 @@ async function handleQueueMessage(body) {
   } catch {
     console.error('Alerts queue: dropped a message that is not JSON.');
     return 0;
+  }
+
+  // Yehia's service does not speak this service's message shape: its events
+  // arrive from the SNS topic and are translated first. The event id keeps a
+  // repeated delivery from creating the same alerts twice.
+  let eventId = null;
+  if (routeEvents.isRouteEvent(msg)) {
+    const translated = routeEvents.translate(msg);
+    if (translated.error) {
+      console.error(`Alerts queue: dropped a route event. ${translated.error}`);
+      return 0;
+    }
+    eventId = translated.message.eventId;
+    const isNew = await processedEvents.claimEvent(eventId, translated.message.eventType);
+    if (!isNew) {
+      console.log(`Alerts queue: route event ${eventId} was already handled, skipped.`);
+      return 0;
+    }
+    msg = translated.message;
   }
 
   const problem = checkMessage(msg);

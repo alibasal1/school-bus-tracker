@@ -17,6 +17,8 @@ QUEUE=favorites-alerts-queue
 DLQ=favorites-alerts-dlq
 KEY_ALIAS=alias/favorites-alerts
 TOPIC=favorites-alerts-ops
+# Yehia publishes every trip change to this topic (Route & Stop, transactional outbox)
+ROUTE_TOPIC=school-bus-route-events
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
 
@@ -114,11 +116,18 @@ if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
     aws apigatewayv2 create-route --api-id $API_ID --route-key "$ROUTE" \
       --target integrations/$INTEGRATION_ID --query RouteKey --output text
   done
-  aws apigatewayv2 create-stage --api-id $API_ID --stage-name '$default' --auto-deploy >/dev/null
+  aws apigatewayv2 create-stage --api-id $API_ID --stage-name '$default' --auto-deploy --default-route-settings ThrottlingBurstLimit=20,ThrottlingRateLimit=10 >/dev/null
   aws lambda add-permission --function-name $FN --statement-id apigw-invoke \
     --action lambda:InvokeFunction --principal apigateway.amazonaws.com \
     --source-arn "arn:aws:execute-api:$REGION:$ACCOUNT:$API_ID/*" >/dev/null
 fi
+
+# Rate limiting at the front door: API Gateway refuses extra requests with 429
+# before Lambda even starts, so a flood of login-guessing or scraping costs us nothing.
+# 10 requests a second, with a burst of 20. Re-applied on every deploy.
+aws apigatewayv2 update-stage --api-id $API_ID --stage-name '$default' \
+  --default-route-settings ThrottlingBurstLimit=20,ThrottlingRateLimit=10 >/dev/null
+echo "   rate limit: 10 req/s, burst 20"
 
 echo "== 6. EventBridge: every day at 18:00 UTC (8 PM Cairo) run the holiday job"
 aws events put-rule --name $RULE \
@@ -152,6 +161,48 @@ fi
 echo "QUEUE_URL=$QUEUE_URL" >> out/api-url.txt
 echo "Queue: $QUEUE_URL"
 
+echo "== 7b. SNS: subscribe the queue to Yehia route events topic (if it is here)"
+# Yehia Route & Stop service writes trip.created / trip.cancelled into its outbox
+# and a forwarder Lambda publishes them to $ROUTE_TOPIC. Subscribing this queue
+# means a cancelled trip reaches the parents who saved that route, with no direct
+# call between the two services: if this service is down the messages wait in SQS.
+#
+# The topic belongs to Yehia, so this script never creates or changes it. His API
+# still runs on Vercel, so on a fresh Floci the topic is simply not there yet:
+# print a warning and carry on, the deploy must not stop for it.
+ROUTE_TOPIC_ARN=$(aws sns list-topics \
+  --query "Topics[?ends_with(TopicArn, ':$ROUTE_TOPIC')].TopicArn | [0]" --output text 2>/dev/null)
+if [ -z "$ROUTE_TOPIC_ARN" ] || [ "$ROUTE_TOPIC_ARN" = "None" ]; then
+  echo "   WARNING: topic $ROUTE_TOPIC is not on this AWS copy yet, subscription skipped."
+  echo "   Ask Yehia to create it, or run his forwarder here, then run this script again."
+else
+  # The topic may only send to this one queue, nothing else.
+  node -e "
+  const policy = JSON.stringify({ Version: '2012-10-17', Statement: [{
+    Effect: 'Allow', Principal: { Service: 'sns.amazonaws.com' },
+    Action: 'sqs:SendMessage', Resource: '$QUEUE_ARN',
+    Condition: { ArnEquals: { 'aws:SourceArn': '$ROUTE_TOPIC_ARN' } } }] });
+  require('fs').writeFileSync('out/queue-policy.json', JSON.stringify({ Policy: policy }));"
+  aws sqs set-queue-attributes --queue-url $QUEUE_URL --attributes file://out/queue-policy.json
+
+  SUB=$(aws sns list-subscriptions-by-topic --topic-arn $ROUTE_TOPIC_ARN \
+    --query "Subscriptions[?Endpoint=='$QUEUE_ARN'].SubscriptionArn | [0]" --output text 2>/dev/null)
+  if [ -z "$SUB" ] || [ "$SUB" = "None" ]; then
+    SUB=$(aws sns subscribe --topic-arn $ROUTE_TOPIC_ARN --protocol sqs \
+      --notification-endpoint $QUEUE_ARN --query SubscriptionArn --output text)
+  fi
+  # Raw delivery: the body is the event itself, not an SNS envelope.
+  aws sns set-subscription-attributes --subscription-arn $SUB \
+    --attribute-name RawMessageDelivery --attribute-value true
+  # Only the two events this service understands are delivered. Anything else
+  # Yehia adds later stays out of the queue instead of being received and dropped.
+  node -e "require('fs').writeFileSync('out/filter-policy.json',
+    JSON.stringify({ event_type: ['trip.cancelled', 'trip.created'] }));"
+  aws sns set-subscription-attributes --subscription-arn $SUB \
+    --attribute-name FilterPolicy --attribute-value "$(cat out/filter-policy.json)"
+  echo "   subscribed to $ROUTE_TOPIC_ARN (raw delivery, trip.cancelled and trip.created only)"
+fi
+
 echo "== 8. CloudWatch alarms: tell us when something goes wrong (SNS topic $TOPIC)"
 # Lecture 8: metrics detect the problem, logs explain it.
 if TOPIC_ARN=$(aws sns create-topic --name $TOPIC --query TopicArn --output text 2>/dev/null) && \
@@ -177,6 +228,37 @@ if TOPIC_ARN=$(aws sns create-topic --name $TOPIC --query TopicArn --output text
   fi
 else
   echo "(this AWS copy has no CloudWatch alarms; skipped)"
+fi
+
+echo "== 8b. CloudWatch metric filter: count the refused requests in the logs"
+# Lecture 8: a metric filter turns a log line into a number we can alarm on.
+# middleware/logger.js writes one SECURITY line per refused request, so this
+# counts 401, 403, 404, 429 and 5xx answers. Five or more in five minutes is
+# either a bug or somebody trying tokens, and both are worth a message.
+LOG_GROUP=/aws/lambda/$FN
+FOUND_LOG=$(aws logs describe-log-groups --log-group-name-prefix $LOG_GROUP \
+  --query "logGroups[0].logGroupName" --output text 2>/dev/null)
+if [ -z "$FOUND_LOG" ] || [ "$FOUND_LOG" = "None" ]; then
+  echo "   $LOG_GROUP does not exist yet: call the API once, then run this script again."
+elif aws logs put-metric-filter --log-group-name $LOG_GROUP \
+  --filter-name favorites-alerts-security-denied \
+  --filter-pattern "SECURITY" \
+  --metric-transformations \
+      metricName=favorites-alerts-security-denied,metricNamespace=SchoolBus/FavoritesAlerts,metricValue=1,defaultValue=0 \
+  2>/dev/null; then
+  echo "   metric filter favorites-alerts-security-denied is in place"
+  if [ -n "$TOPIC_ARN" ]; then
+    aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-security-denied-alarm \
+      --alarm-description "5 or more refused requests in 5 minutes" \
+      --namespace SchoolBus/FavoritesAlerts --metric-name favorites-alerts-security-denied \
+      --statistic Sum --period 300 --evaluation-periods 1 \
+      --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
+      --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN 2>/dev/null \
+      && echo "   alarm favorites-alerts-security-denied-alarm -> $TOPIC" \
+      || echo "   (this AWS copy has no CloudWatch alarms; alarm skipped)"
+  fi
+else
+  echo "   (this AWS copy has no metric filters; skipped)"
 fi
 
 if [ "$ACCOUNT" = "000000000000" ]; then

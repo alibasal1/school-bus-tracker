@@ -23,3 +23,11 @@ CREATE TABLE holidays (
   name VARCHAR(150) NOT NULL,
   year INT NOT NULL CHECK (year BETWEEN 2000 AND 2100)
 );
+
+-- Idempotency keys for route events arriving from Yehia's SNS topic.
+-- Also shipped as db/migrations/001_processed_events.sql for databases already created.
+CREATE TABLE processed_events (
+  event_id     UUID PRIMARY KEY,
+  event_type   VARCHAR(40) NOT NULL,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

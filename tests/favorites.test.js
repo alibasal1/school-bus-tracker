@@ -28,6 +28,7 @@ jest.mock('../middleware/auth', () => ({
 
 jest.mock('../services/favorites', () => ({
   listFavorites: jest.fn(),
+  listOptions: jest.fn(),
   addFavorite: jest.fn(),
   removeFavorite: jest.fn()
 }));
@@ -57,6 +58,7 @@ const alertId = '44444444-4444-4444-8444-444444444444';
 beforeEach(() => {
   jest.clearAllMocks();
   favoritesService.listFavorites.mockResolvedValue([]);
+  favoritesService.listOptions.mockResolvedValue([]);
   favoritesService.addFavorite.mockResolvedValue({ id: favoriteId, routeId, stopId: null });
   favoritesService.removeFavorite.mockResolvedValue(true);
   alertsService.ensureTomorrowHolidayAlert.mockResolvedValue(null);
@@ -171,5 +173,27 @@ describe('favorites, alerts, and holidays endpoints', () => {
       '11111111-1111-4111-8111-111111111111',
       true
     );
+  });
+
+  test('the options endpoint gives the form the routes with their stops', async () => {
+    favoritesService.listOptions.mockResolvedValue([
+      { id: routeId, code: 'R1', name: 'Maadi', stops: [{ id: 'stop-1', name: 'Gate 2', stopOrder: 1 }] }
+    ]);
+    const response = await require('supertest')(app).get('/api/favorites/options').set(parent);
+    expect(response.status).toBe(200);
+    expect(response.body.routes[0].code).toBe('R1');
+    expect(response.body.routes[0].stops).toHaveLength(1);
+  });
+
+  test('options is read as a path, never as a favorite id', async () => {
+    await require('supertest')(app).get('/api/favorites/options').set(parent);
+    expect(favoritesService.listOptions).toHaveBeenCalled();
+  });
+
+  test('an admin cannot read a parent options list', async () => {
+    const response = await require('supertest')(app)
+      .get('/api/favorites/options')
+      .set({ Authorization: 'Bearer admin' });
+    expect(response.status).toBe(403);
   });
 });
