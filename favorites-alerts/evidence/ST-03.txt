@@ -1,0 +1,21 @@
+# ST-03: admin token on a parent route
+# 2026-11-24T02:36:22Z
+$ curl -s -i http://22b92e5059.execute-api.localhost.floci.io:4566/api/favorites -H Authorization: Bearer <ADMIN_TOKEN>
+HTTP/1.1 403 Forbidden
+cache-control: no-store
+content-length: 70
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Tue, 24 Nov 2026 02:36:23 GMT
+etag: W/"46-TzXeZTonXXnYvDUbZ3QKuDsNGLI"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: 2588ed86-dd15-4fc4-8c14-c90957560822
+x-amz-request-id: 2588ed86-dd15-4fc4-8c14-c90957560822
+x-amzn-RequestId: 2588ed86-dd15-4fc4-8c14-c90957560822
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"FORBIDDEN","message":"You do not have permission."}}

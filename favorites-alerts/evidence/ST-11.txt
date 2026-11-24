@@ -1,0 +1,13 @@
+# ST-11: 60 requests to GET /api/health, 20 at a time
+# 2026-11-24T02:38:55Z
+# stage throttling set by infra/deploy.sh: rate 10 req/s, burst 20
+$ seq 60 | xargs -P 20 -I{} curl -s -o /dev/null -w '%{http_code}\n' http://22b92e5059.execute-api.localhost.floci.io:4566/api/health | sort | uniq -c
+     60 200
+# stage settings as stored:
+{
+    "ThrottlingBurstLimit": 20,
+    "ThrottlingRateLimit": 10.0
+}
+# second try: 200 requests, 50 at a time (02:39:05Z)
+    200 200
+took 8807 ms

@@ -1,0 +1,19 @@
+# Suspicious activity: 30 requests with no token, then search the logs
+# 2026-11-24T02:39:28Z
+$ for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' http://22b92e5059.execute-api.localhost.floci.io:4566/api/favorites; done | sort | uniq -c
+     30 401
+$ aws logs filter-log-events --log-group-name /aws/lambda/favorites-alerts-api --filter-pattern SECURITY --start-time 1795487968000
+matching SECURITY lines: 30
+  SECURITY denied GET /api/favorites status=401 reason=UNAUTHENTICATED user=anonymous
+  SECURITY denied GET /api/favorites status=401 reason=UNAUTHENTICATED user=anonymous
+  SECURITY denied GET /api/favorites status=401 reason=UNAUTHENTICATED user=anonymous
+  ...
+$ aws logs describe-metric-filters --log-group-name /aws/lambda/favorites-alerts-api
+favorites-alerts-security-denied	SECURITY	SchoolBus/FavoritesAlerts	favorites-alerts-security-denied
+$ aws cloudwatch get-metric-statistics --namespace SchoolBus/FavoritesAlerts --metric-name favorites-alerts-security-denied --statistics Sum --period 300 (last 15 min)
+2026-11-24T04:30:00+02:00	5.0
+2026-11-24T04:35:00+02:00	43.0
+(empty = no datapoints)
+$ aws cloudwatch describe-alarms --alarm-names favorites-alerts-security-denied-alarm
+favorites-alerts-security-denied-alarm	ALARM	5.0	GreaterThanOrEqualToThreshold	300	arn:aws:sns:us-east-1:000000000000:favorites-alerts-ops
+# checked at 2026-11-24T02:40:51Z
