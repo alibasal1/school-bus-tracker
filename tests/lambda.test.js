@@ -31,6 +31,21 @@ describe('lambda handler', () => {
     expect(JSON.parse(result.body).service).toBe('favorites-alerts');
   });
 
+  test('a JSON body from API Gateway reaches Express as an object, not a Buffer', () => {
+    const { parseJsonBody } = require('../lambda');
+    const json = { headers: { 'content-type': 'application/json' }, body: Buffer.from('{"isRead":true}') };
+    parseJsonBody(json);
+    expect(json.body).toEqual({ isRead: true });
+
+    const broken = { headers: { 'content-type': 'application/json' }, body: Buffer.from('{bad') };
+    parseJsonBody(broken);
+    expect(broken.body).toBeUndefined();
+
+    const text = { headers: { 'content-type': 'text/plain' }, body: Buffer.from('a=1') };
+    parseJsonBody(text);
+    expect(text.body).toBeUndefined();
+  });
+
   test('SQS messages go to the alerts queue handler', async () => {
     const result = await handler({ Records: [
       { eventSource: 'aws:sqs', body: '{"a":1}' }, { eventSource: 'aws:sqs', body: '{"b":2}' }
