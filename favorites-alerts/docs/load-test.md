@@ -36,34 +36,45 @@ The whole load comes from one machine, so every request has the same source IP, 
 
 ## Results
 
-| Metric | Value |
-|---|---|
-| Requests | 1072 (12.0 per second) |
-| Iterations | 536 (6.0 per second) |
-| Failed requests (`http_req_failed`) | 0.00 % (0 of 1072) |
-| 429 answers (`rate_limited_429`) | 0 (k6 never added to the counter, so it is not in the summary; CloudWatch also shows 0 `RATE_LIMITED` lines for the run) |
-| Checks passed | 100 % (1072 of 1072) |
-| Response time, average | 3.06 s |
-| Response time, median | 458 ms |
-| Response time, p(90) | 7.02 s |
-| Response time, p(95) | 21.22 s |
-| Response time, max | 43.09 s |
-| Time inside the Lambda (from its own log lines) | `/api/health` p95 6 ms; `/api/holidays` median 461 ms, p95 2.78 s |
+Run A is the deployed service on Floci (the run above). Run B is the same script,
+same stages, thresholds and PARENT1 token, against `npm start` on the PC
+(`http://localhost:3003`, 2026-11-24 18:21 UTC, warmed with 5 × `/api/health` and
+1 × `/api/holidays` first). Full output of Run B: `evidence/k6-run-pc.txt`.
 
-| Threshold | Limit | Result | Pass |
+| Metric | Run A: Floci (API Gateway + Lambda) | Run B: Express on the PC, no Floci |
+|---|---|---|
+| Requests | 1072 (12.0 per second) | 5248 (73.9 per second) |
+| Iterations | 536 (6.0 per second) | 2624 (37.0 per second) |
+| Failed requests (`http_req_failed`) | 0.00 % (0 of 1072) | 0.00 % (0 of 5248) |
+| 429 answers (`rate_limited_429`) | 0 (k6 never added to the counter, so it is not in the summary; CloudWatch also shows 0 `RATE_LIMITED` lines) | 2537 (of 2624 `/api/holidays` requests; 87 got 200) |
+| Checks passed | 100 % (1072 of 1072) | 100 % (5248 of 5248) |
+| Response time, average | 3.06 s | 8.41 ms |
+| Response time, median | 458 ms | 0.51 ms |
+| Response time, p(90) | 7.02 s | 0.93 ms |
+| Response time, p(95) | 21.22 s | 1.13 ms |
+| Response time, max | 43.09 s | 1.26 s |
+| `/api/holidays` 200 answers, time inside the app (own log lines) | median 461 ms, p95 2.78 s | median 435 ms, p95 865 ms |
+
+| Threshold | Limit | Run A: Floci | Run B: PC |
 |---|---|---|---|
-| `http_req_duration` | p(95) < 500 ms | p(95) = 21.22 s | **Not passed** |
-| `http_req_failed` | rate < 5 % | 0.00 % | Pass |
+| `http_req_duration` | p(95) < 500 ms | 21.22 s, **not passed** | 1.13 ms, pass |
+| `http_req_failed` | rate < 5 % | 0.00 %, pass | 0.00 %, pass |
 
-The threshold was not changed to make the run pass.
+The thresholds were not changed to make either run pass.
 
-## Why p95 is over 500 ms
+### Why Run B is so different
+
+1. On the PC there is one Node process and no Floci in front of it, so no request waits for a Lambda copy to start or to be free; that wait was most of Run A's 21 s.
+2. One process means one rate-limit count, so after the first 60 `/api/holidays` requests a minute every one got an instant 429 (2537 of them), while Floci spread Run A over several copies and none got a 429.
+3. Most of Run B's requests are a `/api/health` or a 429 answered in about 1 ms without touching Neon, so its p95 of 1.13 ms mostly measures those; the 87 real `/api/holidays` answers still took about 435 ms each, the trip to Neon, the same as on Floci.
+
+## Why Run A p95 is over 500 ms
 
 1. Lambda on Floci: each copy is a Docker container that Floci starts while the load grows, and requests wait in Floci for a free copy; `/api/health` took 6 ms inside the Lambda but seconds at k6, so most of the time is that wait, not our code.
 2. Every `/api/holidays` request goes from my laptop to Neon over the internet (a session check and the holidays cache), which is about 460 ms even when nothing else is busy.
 3. One laptop runs k6, Docker, Floci and every Lambda copy at the same time, so at 100 users they all compete for the same CPU.
 
-## Why there were no 429s
+## Why Run A had no 429s
 
 The rate limit counts in memory, one count per Lambda copy (see `docs/security-controls.md`).
 Floci ran the requests on several copies, and `docker ps` right after the run showed
