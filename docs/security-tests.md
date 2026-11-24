@@ -1,4 +1,4 @@
-# 200 with `content-security-policy: default-src 'none'; frame-ancestors 'none'`, `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer`, `cache-control: no-store`, HSTS; no `X-Powered-By` | Pass | undefined60/60 and then 200/200 answered 200, no 429. The stage stores `ThrottlingRateLimit 10, ThrottlingBurstLimit 20`, but Floci does not enforce stage throttling | **Not passed on Floci** (see note) | undefinedLambda env: NODE_ENV, SECRET_ID, CORS_ORIGINS only, no DATABASE_URL. Git history: 0 real DB URLs (only the `user:password@host` placeholder in `.env.example`), 0 AWS keys, 0 tokens, `.env` never committed. Logs: 88 events, 0 DB URLs, 0 Bearer/Authorization, 0 tokens, 0 64-hex strings | Pass | undefined1st delivery: 1 alert, 1 `processed_events` row. 2nd: "route event 4444… was already handled, skipped", alerts stay 2, rows stay 1 | Pass | undefinedLambda log: "dropped a bad message. type must be one of …"; alerts 1 → 1 | Pass | undefined404 `NOT_FOUND` "Alert not found."; parent1 alert `747fc412-…` still `isRead:false` | Pass | undefined404 `NOT_FOUND` "Favorite not found."; parent1 still has favorite `e97e177e-…` | Pass | undefined415 `UNSUPPORTED_MEDIA_TYPE` | Pass | undefined400 `VALIDATION_ERROR` "routeId and stopId must be valid UUIDs." | Pass | undefined403 `FORBIDDEN` | Pass | undefined401 `UNAUTHENTICATED` (no session matches the token hash) | Pass | undefined401 `UNAUTHENTICATED` "Please log in." | Pass | undefinedSecurity tests, Favorites & Alerts service
+# Security tests: Favorites & Alerts
 
 Owner: Ali (246090). Team 14, 26CSCN29H.
 
@@ -59,7 +59,8 @@ Result of the run (2026-11-24, `evidence/suspicious-activity.txt`):
 
 ## Tests that run without AWS
 
-`npm test` runs 55 unit tests, of which these are the security ones:
+`npm test` runs 57 unit tests, of which these are the security ones:
 `tests/auth.test.js` (7), `tests/security.test.js` (6) and
-`tests/routeEvents.test.js` (8). They use a fake database, so they prove the
+`tests/routeEvents.test.js` (8), plus two role checks for supervisor in
+`tests/favorites.test.js`. They use a fake database, so they prove the
 code refuses what it should; the table above proves the deployed service does.

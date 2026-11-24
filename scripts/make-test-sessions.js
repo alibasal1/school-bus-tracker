@@ -10,6 +10,9 @@ const users = [
   { id: '11111111-1111-4111-8111-111111111111', name: 'Test Parent 1', email: 'parent1@test.local', role: 'parent' },
   { id: '22222222-2222-4222-8222-222222222222', name: 'Test Parent 2', email: 'parent2@test.local', role: 'parent' },
   { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Test Admin', email: 'admin@test.local', role: 'admin' },
+  // Supervisor marks attendance in Ahmed's service. Here it proves the role check:
+  // favorites and alerts are parent-only, holidays are open to any logged-in role.
+  { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Test Supervisor', email: 'supervisor@test.local', role: 'supervisor' },
 ];
 
 const sqlLines = [];

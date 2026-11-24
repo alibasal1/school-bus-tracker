@@ -196,4 +196,18 @@ describe('favorites, alerts, and holidays endpoints', () => {
       .set({ Authorization: 'Bearer admin' });
     expect(response.status).toBe(403);
   });
+
+  test('a supervisor is refused on the parent-only favorites', async () => {
+    const response = await require('supertest')(app)
+      .get('/api/favorites')
+      .set({ Authorization: 'Bearer supervisor' });
+    expect(response.status).toBe(403);
+  });
+
+  test('a supervisor may read the holidays, like any logged-in role', async () => {
+    const response = await require('supertest')(app)
+      .get('/api/holidays')
+      .set({ Authorization: 'Bearer supervisor' });
+    expect(response.status).toBe(200);
+  });
 });

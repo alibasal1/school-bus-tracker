@@ -21,6 +21,29 @@ Every control below is in the code and runs on Floci, not only described.
 | 12 | Security logging | `middleware/logger.js` writes a `SECURITY denied ...` line for 401, 403, 404, 409, 415, 429 and 5xx | Every refusal is recorded with who was refused and why. No password, token or request body is ever logged |
 | 13 | Monitoring | CloudWatch Logs plus alarms on Lambda errors and on the dead-letter queue | A broken deploy or a flood of failures is noticed instead of being silent |
 
+## 1b. Role and permission matrix
+
+The app has three roles. Supervisor belongs to Ahmed's service, where it marks
+attendance; in this service it is a logged-in user with no parent data of its
+own. Every line below is enforced in `routes/favorites.js` by `requireRole`,
+after `requireAuth` has found the session. Nothing here relies on the frontend.
+
+| Action | parent | supervisor | admin | Enforced where |
+|---|---|---|---|---|
+| `GET /api/favorites` (own saved stops) | yes | 403 | 403 | `requireRole('parent')` |
+| `GET /api/favorites/options` | yes | 403 | 403 | `requireRole('parent')` |
+| `POST /api/favorites` | yes, own only | 403 | 403 | `requireRole('parent')` + `user_id` from the session |
+| `DELETE /api/favorites/{id}` | yes, own only | 403 | 403 | `requireRole('parent')` + `WHERE user_id = session user` |
+| `GET /api/alerts` | yes, own only | 403 | 403 | `requireRole('parent')` |
+| `PATCH /api/alerts/{id}` | yes, own only | 403 | 403 | `requireRole('parent')` + `WHERE user_id = session user` |
+| `GET /api/holidays` | yes | yes | yes | `requireAuth` only: the school calendar is not private |
+| `GET /api/health` | open | open | open | no check: it must answer before anyone logs in |
+
+A parent never passes a user id in a request. The id always comes from the
+session, so changing an id in the URL reaches nothing: the row is simply not
+found and the answer is 404, not 403, which also avoids telling the caller that
+someone else's record exists.
+
 ## 2. Security tests
 
 The brief asks for at least 8 documented security tests. These run with `npm test`.
