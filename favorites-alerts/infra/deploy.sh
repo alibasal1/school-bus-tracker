@@ -58,7 +58,7 @@ aws iam attach-role-policy --role-name $ROLE --policy-arn $POLICY_ARN
 echo "== 2. Build lambda.zip"
 npm run zip --silent
 
-echo "== 3. Secrets Manager: the Neon link and Calendarific key go in one secret"
+echo "== 3. Secrets Manager: the Neon link, Calendarific key and rate limit go in one secret"
 [ -f .env ] || { echo "Missing .env. Copy .env.example to .env first."; exit 1; }
 mkdir -p out
 : > out/api-url.txt
@@ -66,7 +66,8 @@ node -e "
 require('dotenv').config();
 if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is empty in .env'); process.exit(1); }
 const secret = { DATABASE_URL: process.env.DATABASE_URL,
-  CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '' };
+  CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '',
+  RATE_LIMIT_MAX: process.env.RATE_LIMIT_MAX || '60' };
 require('fs').writeFileSync('out/secret.json', JSON.stringify(secret));
 const v = { NODE_ENV: 'production', SECRET_ID: '$SECRET_NAME',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:5173' };

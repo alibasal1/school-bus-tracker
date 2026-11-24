@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const logger = require('./middleware/logger');
 const securityHeaders = require('./middleware/securityHeaders');
+const rateLimit = require('./middleware/rateLimit');
 
 // Favorites & Alerts API. Owner: Ali (246090).
 // app.js builds the Express app. It does not call app.listen():
@@ -21,6 +22,10 @@ app.get('/api/health', (req, res) => {
   const runtime = process.env.AWS_LAMBDA_FUNCTION_NAME ? 'lambda' : 'pc';
   res.status(200).json({ status: 'ok', service: 'favorites-alerts', runtime });
 });
+
+// After /api/health on purpose: the health check is never rate limited.
+// Before the routes, so a client over the limit never reaches the database.
+app.use(rateLimit);
 
 app.use('/api', require('./routes/favorites'));
 

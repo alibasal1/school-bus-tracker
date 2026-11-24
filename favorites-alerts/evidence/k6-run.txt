@@ -1,50 +1,51 @@
-$ k6 run -e API_URL=http://22b92e5059.execute-api.localhost.floci.io:4566 -e TOKEN=<PARENT1_TOKEN> k6/favorites-load.js
-# 2026-11-24T02:42:21Z, k6 v2.4.0, Windows 11, Floci in Docker Desktop on the same PC
+$ k6 run -e API_URL=http://96301206f5.execute-api.localhost.floci.io:4566 -e TOKEN=<PARENT1_TOKEN> k6/favorites-load.js
+# 2026-11-24T18:08:32Z, k6.exe v2.4.0, Windows 11, Floci in Docker Desktop on the same PC
+# run warm: 5 x GET /api/health just before the run:
+# warm-up GET /api/health -> 200 0.023693s
+# warm-up GET /api/health -> 200 0.014219s
+# warm-up GET /api/health -> 200 0.013167s
+# warm-up GET /api/health -> 200 0.036697s
+# warm-up GET /api/health -> 200 0.014493s
 
          /\      Grafana   /‾‾/  
     /\  /  \     |\  __   /  /   
    /  \/    \    | |/ /  /   ‾‾\ 
   /          \   |   (  |  (‾)  |
  / __________ \  |_|\_\  \_____/ 
-
      execution: local
         script: k6/favorites-load.js
         output: -
-
-     scenarios: (100.00%) 1 scenario, 50 max VUs, 1m30s max duration (incl. graceful stop):
-              * default: Up to 50 looping VUs for 1m0s over 2 stages (gracefulRampDown: 30s, gracefulStop: 30s)
-
+     scenarios: (100.00%) 1 scenario, 100 max VUs, 1m40s max duration (incl. graceful stop):
+              * default: Up to 100 looping VUs for 1m10s over 3 stages (gracefulRampDown: 30s, gracefulStop: 30s)
   █ THRESHOLDS 
-
     http_req_duration
-    ✓ 'p(95)<2000' p(95)=1.43s
-
+    ✗ 'p(95)<500' p(95)=21.22s
     http_req_failed
-    ✓ 'rate<0.01' rate=0.00%
-
+    ✓ 'rate<0.05' rate=0.00%
   █ TOTAL RESULTS 
-
-    checks_total.......: 6000    88.471079/s
-    checks_succeeded...: 100.00% 6000 out of 6000
-    checks_failed......: 0.00%   0 out of 6000
-
+    checks_total.......: 1072    12.018443/s
+    checks_succeeded...: 100.00% 1072 out of 1072
+    checks_failed......: 0.00%   0 out of 1072
     ✓ health is 200
     ✓ holidays is 200 or 429
-
+    CUSTOM
+    ok_200_duration................: avg=3.06s min=4.67ms   med=458.19ms max=43.09s p(90)=7.02s  p(95)=21.22s
     HTTP
-    http_req_duration..............: avg=448.45ms min=4.85ms   med=420.86ms max=12.03s p(90)=646.65ms p(95)=1.43s
-      { expected_response:true }...: avg=448.45ms min=4.85ms   med=420.86ms max=12.03s p(90)=646.65ms p(95)=1.43s
-    http_req_failed................: 0.00%  0 out of 6000
-    http_reqs......................: 6000   88.471079/s
-
+    http_req_duration..............: avg=3.06s min=4.67ms   med=458.19ms max=43.09s p(90)=7.02s  p(95)=21.22s
+      { expected_response:true }...: avg=3.06s min=4.67ms   med=458.19ms max=43.09s p(90)=7.02s  p(95)=21.22s
+    http_req_failed................: 0.00%  0 out of 1072
+    http_reqs......................: 1072   12.018443/s
     EXECUTION
-    iteration_duration.............: avg=897.3ms  min=408.83ms med=494.79ms max=15.03s p(90)=1.05s    p(95)=3.07s
-    iterations.....................: 3000   44.235539/s
-    vus............................: 5      min=3         max=50
-    vus_max........................: 50     min=50        max=50
-
+    iteration_duration.............: avg=7.12s min=914.13ms med=2.04s    max=46.53s p(90)=26.89s p(95)=34.37s
+    iterations.....................: 536    6.009221/s
+    vus............................: 2      min=1         max=100
+    vus_max........................: 100    min=100       max=100
     NETWORK
-    data_received..................: 7.6 MB 112 kB/s
-    data_sent......................: 942 kB 14 kB/s
+    data_received..................: 1.4 MB 15 kB/s
+    data_sent......................: 168 kB 1.9 kB/s
+default ✓ [ 100% ] 000/100 VUs  1m10s
+time="2026-11-24T20:10:03+02:00" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"
 
-default ✓ [ 100% ] 00/50 VUs  1m0s
+# From CloudWatch Logs for the same period (the app's own per-request lines):
+# 541 x GET /api/health 200 (5 warm-up + 536), 536 x GET /api/holidays 200, 0 x 429, 0 x RATE_LIMITED, 0 x 5xx
+# time inside the Lambda: /api/health p95 6 ms; /api/holidays median 461 ms, p95 2778 ms, max 5765 ms

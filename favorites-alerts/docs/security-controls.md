@@ -16,7 +16,7 @@ Every control below is in the code and runs on Floci, not only described.
 | 7 | Parameterised SQL only | all of `services/` (`@neondatabase/serverless` tagged templates) | SQL injection: values are always sent as parameters, never joined into the query text |
 | 8 | No secrets in code or repo | `.env` is gitignored and absent from the whole commit history; values live in Secrets Manager (`favorites-alerts/app`), encrypted with our own KMS key `alias/favorites-alerts`, rotated yearly | A leaked repository leaks nothing. The Lambda settings hold only `SECRET_ID`, `CORS_ORIGINS`, `NODE_ENV` |
 | 9 | Least-privilege IAM role | `infra/iam/favorites-alerts-policy.json` | The function may read only its own secret, its own queue and its own log group |
-| 10 | Rate limiting | API Gateway stage throttling, 10 req/s with a burst of 20 (`infra/deploy.sh`) | Guessing tokens or scraping is refused with 429 at the front door, before Lambda starts |
+| 10 | Rate limiting, two layers | 1. API Gateway stage throttling, 10 req/s with a burst of 20 (`infra/deploy.sh`). 2. `middleware/rateLimit.js`: 60 requests per minute per source IP (`RATE_LIMIT_MAX` in the secret), on every route except `/api/health`, answering 429 `RATE_LIMITED` with `Retry-After` | Guessing tokens or scraping is refused with 429. The client is keyed on the API Gateway source IP, never on `X-Forwarded-For`, so a faked header does not reset the count. Each Lambda copy keeps its own count, so the app limit is per copy; the API Gateway throttle is the shared limit on real AWS |
 | 11 | Security response headers | `middleware/securityHeaders.js` | No sniffing, no framing, no referrer leak, no caching of a parent's data, and no Express version advertised |
 | 12 | Security logging | `middleware/logger.js` writes a `SECURITY denied ...` line for 401, 403, 404, 409, 415, 429 and 5xx | Every refusal is recorded with who was refused and why. No password, token or request body is ever logged |
 | 13 | Monitoring | CloudWatch Logs plus alarms on Lambda errors and on the dead-letter queue | A broken deploy or a flood of failures is noticed instead of being silent |
@@ -89,8 +89,12 @@ gives an attacker is this one function's own secret and queue.
   header is sent on every response.
 - Login itself lives in Ahmed's service. This service only verifies the session
   token, so password policy and lockout are outside its scope.
-- Rate limiting is per stage, not per user: it protects the service, but a single
-  parent can still use the whole allowance.
+- The API Gateway throttle is per stage, not per user: it protects the service, but
+  a single parent can still use the whole allowance. The app layer is per source IP,
+  but it is kept in memory, so each Lambda copy counts on its own (a client spread
+  over three warm copies could get up to three times the limit) and a cold start
+  begins with an empty count. Floci stores the stage throttle but does not enforce
+  it, so on Floci the 429 comes only from the app layer.
 
 ## 5. What is proved where
 

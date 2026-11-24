@@ -25,12 +25,12 @@ Date of the run: 2026-11-24, 02:34 to 02:41 UTC
 | ST-08 | Bad queue message | send `{"type":"unknown","message":"x"}` to the alerts queue | dropped and logged, no alert created | Lambda log: "dropped a bad message. type must be one of …"; alerts 1 → 1 | Pass | `evidence/ST-08.txt` |
 | ST-09 | Repeated route event | send `infra/events/route-cancelled.json` to the queue twice | alerts created once only | 1st delivery: 1 alert, 1 `processed_events` row. 2nd: "route event 4444… was already handled, skipped"; alerts stay 2, rows stay 1 | Pass | `evidence/ST-09.txt` |
 | ST-10 | Secret exposure review | Lambda settings, git history, CloudWatch logs | no DATABASE_URL, no keys, no tokens anywhere | Lambda env: NODE_ENV, SECRET_ID, CORS_ORIGINS only, no DATABASE_URL. Git history: 0 real DB URLs (only the `user:password@host` placeholder in `.env.example`), 0 AWS keys, 0 tokens, `.env` never committed. Logs: 88 events, 0 DB URLs, 0 Bearer/Authorization, 0 tokens, 0 64-hex strings | Pass | `evidence/ST-10.txt` |
-| ST-11 | Rate limiting | 60 requests to `GET /api/health` as fast as possible | at least one 429 from API Gateway | 60/60, then 200/200 answered 200, no 429. The stage stores rate 10, burst 20, but Floci does not enforce stage throttling | **Not passed on Floci** (see note) | `evidence/ST-11.txt` |
+| ST-11 | Rate limiting | 80 requests to `GET /api/alerts` with the PARENT1 token, one after the other; then 80 more, each with a different fake `X-Forwarded-For` | 429 `RATE_LIMITED` with `Retry-After` after 60 requests in a minute, and a fake `X-Forwarded-For` does not help | Run 1: 60 × 200, 20 × 429; the next request got 429 with `retry-after: 6` and `RATE_LIMITED`. Run 2 (fake `X-Forwarded-For`): 60 × 200, 20 × 429. `/api/health` still 200. 41 `reason=RATE_LIMITED` SECURITY lines in CloudWatch. With 8 requests in parallel there was no 429, because Floci spread them over several Lambda copies (see note) | Pass (app layer, one Lambda copy) | `evidence/ST-11.txt` |
 | ST-12 | Security headers | `curl -i GET /api/health` | CSP, nosniff, DENY, no-referrer, no-store, no X-Powered-By | 200 with `content-security-policy: default-src 'none'; frame-ancestors 'none'`, `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer`, `cache-control: no-store`, HSTS; no `X-Powered-By` | Pass | `evidence/ST-12.txt` |
 
-**Result: 11 of 12 pass on Floci.**
+**Result: 12 of 12 pass on Floci.** ST-11 passes through the app-level limit; the API Gateway throttle itself is still not enforced by Floci.
 
-**Note on ST-11.** The throttle is set, and `aws apigatewayv2 get-stage` reads it back (`evidence/ST-11.txt`). Floci accepts the setting but does not apply it: 200 requests at about 23 per second, more than twice the limit, all got 200. On real AWS API Gateway the same stage setting returns 429. This test has to be repeated on real AWS before it can be marked as passed.
+**Note on ST-11.** The first run (24 Nov, 02:38 UTC) failed: the API Gateway stage stores rate 10 and burst 20, but Floci does not enforce it, and 200 requests at about 23 per second all got 200. `middleware/rateLimit.js` was then added as a second layer: 60 requests per minute per source IP, keyed on the API Gateway `sourceIp` and never on `X-Forwarded-For`. The rerun (24 Nov, 18:00 to 18:06 UTC) is in `evidence/ST-11.txt`. Sent one after the other, the requests reach one warm Lambda copy and request 61 onward gets 429, with or without a fake `X-Forwarded-For`. Sent 8 in parallel, Floci started several copies (4 `favorites-alerts-api` containers were running right after), each copy counted only its share, and all 80 got 200. That is the known limit of an in-memory counter: it is per Lambda copy. On real AWS the API Gateway throttle is the shared limit across all copies, and that part still has to be checked on real AWS.
 
 **Bug found and fixed while running ST-04 and ST-07.** The first run of ST-07 returned 400 instead of 404, and a POST with two valid UUIDs was also refused. serverless-http 3 hands Express the raw body as a Buffer, and Express 5's `express.json()` leaves a body that is already set alone, so every POST and PATCH through Lambda failed validation (the unit tests use supertest, which never goes through Lambda). `lambda.js` now parses JSON bodies before Express sees them (`parseJsonBody`, covered by a new test in `tests/lambda.test.js`). All results in the table are from the run after the fix.
 
@@ -59,8 +59,8 @@ Result of the run (2026-11-24, `evidence/suspicious-activity.txt`):
 
 ## Tests that run without AWS
 
-`npm test` runs 57 unit tests, of which these are the security ones:
-`tests/auth.test.js` (7), `tests/security.test.js` (6) and
+`npm test` runs 65 unit tests, of which these are the security ones:
+`tests/auth.test.js` (7), `tests/security.test.js` (6), `tests/rateLimit.test.js` (7) and
 `tests/routeEvents.test.js` (8), plus two role checks for supervisor in
 `tests/favorites.test.js`. They use a fake database, so they prove the
 code refuses what it should; the table above proves the deployed service does.
