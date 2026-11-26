@@ -3,7 +3,6 @@ import LoginPage from './pages/LoginPage';
 import RoutesPage from './pages/RoutesPage';
 import SchedulePage from './pages/SchedulePage';
 import FavoritesPage from './pages/FavoritesPage';
-import AlertsPage from './pages/AlertsPage';
 
 // Simple tabs instead of a router, so there is nothing extra to learn.
 const pages = {
@@ -11,7 +10,6 @@ const pages = {
   routes: { label: 'Routes', Page: RoutesPage },
   schedule: { label: 'Bus times', Page: SchedulePage },
   favorites: { label: 'My stops', Page: FavoritesPage },
-  alerts: { label: 'Alerts', Page: AlertsPage },
 };
 
 export default function App() {
