@@ -127,6 +127,17 @@ describe('favorites, alerts, and holidays endpoints', () => {
     expect(favoritesService.addFavorite).not.toHaveBeenCalled();
   });
 
+  test("accepts the alert ids Ahmed's worker makes, like <event id>:<user id>", async () => {
+    const response = await require('supertest')(app)
+      .patch('/api/alerts/evt-123:11111111-1111-4111-8111-111111111111')
+      .set(parent)
+      .send({ isRead: true });
+    expect(response.status).toBe(200);
+    expect(alertsService.markAlertRead).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111', 'evt-123:11111111-1111-4111-8111-111111111111'
+    );
+  });
+
   test('accepts the readable route ids Ahmed seeds, like route-cairo-demo', async () => {
     const response = await require('supertest')(app)
       .post('/api/favorites')

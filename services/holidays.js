@@ -8,16 +8,34 @@ const { TABLES } = require('../db/tables');
 // BatchWriteItem takes at most 25 items per call.
 const BATCH_SIZE = 25;
 
-async function savedHolidays(year) {
-  const items = await queryAll({
+// Two kinds of item share the Holidays table:
+//   - the Calendarific cache written here, id "holiday-eg-<date>",
+//   - holidays an admin adds in Ahmed's service, id is a random UUID.
+const CALENDARIFIC_PREFIX = 'holiday-eg-';
+
+function savedItems(year) {
+  return queryAll({
     TableName: TABLES.holidays,
     IndexName: 'year-index',
     KeyConditionExpression: '#year = :year',
     ExpressionAttributeNames: { '#year': 'year' },
     ExpressionAttributeValues: { ':year': String(year) }
   });
-  return items
-    .map((item) => ({ date: item.date, name: item.name }))
+}
+
+// One line per date. When an admin holiday and a Calendarific holiday fall on
+// the same date, the admin's wins: the school decided it on purpose.
+function mergeByDate(items) {
+  const byDate = new Map();
+  for (const item of items) {
+    const fromAdmin = !String(item.id || '').startsWith(CALENDARIFIC_PREFIX);
+    const current = byDate.get(item.date);
+    if (!current || (fromAdmin && !current.fromAdmin)) {
+      byDate.set(item.date, { date: item.date, name: item.name, fromAdmin });
+    }
+  }
+  return [...byDate.values()]
+    .map(({ date, name }) => ({ date, name }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -67,8 +85,11 @@ async function saveHolidays(year, list) {
 }
 
 async function getHolidays(year) {
-  const saved = await savedHolidays(year);
-  if (saved.length > 0) return saved;
+  const items = await savedItems(year);
+  const saved = mergeByDate(items);
+  // Only a year that already has Calendarific items is cached. Admin holidays
+  // alone do not count, or one admin entry would hide the whole national list.
+  if (items.some((item) => String(item.id || '').startsWith(CALENDARIFIC_PREFIX))) return saved;
 
   const apiKey = process.env.CALENDARIFIC_API_KEY;
   if (!apiKey) {
@@ -85,7 +106,8 @@ async function getHolidays(year) {
   }
 
   await saveHolidays(year, holidayList);
-  return holidayList.sort((a, b) => a.date.localeCompare(b.date));
+  const cached = holidayList.map(({ date, name }) => ({ id: `${CALENDARIFIC_PREFIX}${date}`, date, name }));
+  return mergeByDate([...items, ...cached]);
 }
 
 module.exports = { getHolidays };

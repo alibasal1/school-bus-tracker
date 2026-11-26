@@ -53,7 +53,7 @@ every parent who saved that route.
 
 | Field | Rule |
 |---|---|
-| `event_id` | required, unique per event. Letters, digits, `-`, `_` |
+| `event_id` | required, unique per event. Letters, digits, `-`, `_`, `:` |
 | `event_type` | `trip.cancelled` (becomes `cancel`) or `trip.created` (becomes `trip_change`) |
 | `route_id` | the route id from the `Routes` table. It may also be inside `payload` |
 | `payload` | optional: `service_date`, `run_type`, `route_code`, `reason` make the text nicer |
@@ -82,7 +82,7 @@ delivery creates alerts; a repeat is logged as `already handled, skipped`.
 `type` is `cancel` or `trip_change`.
 
 Rules for all shapes: `message` is 1 to 300 characters, ids use only letters,
-digits, `-` and `_`. A bad message is logged and dropped (sending it again would
+digits, `-`, `_` and `:`. A bad message is logged and dropped (sending it again would
 not fix it). If DynamoDB fails, the Lambda throws, SQS tries again, and after 3
 tries the message moves to `favorites-alerts-dlq`.
 

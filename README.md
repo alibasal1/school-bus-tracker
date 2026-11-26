@@ -39,7 +39,7 @@ All keys are strings. Billing is PAY_PER_REQUEST. Same schema as Ahmed's
 |---|---|---|---|
 | `Favorites` | `id` | `user-id-index` (user_id) | reads and writes |
 | `Alerts` | `id` | `user-id-index` (user_id) | reads and writes |
-| `Holidays` | `id` (`holiday-eg-<date>`) | `date-index`, `year-index` | reads and writes (Calendarific cache) |
+| `Holidays` | `id` (`holiday-eg-<date>` for the Calendarific cache, a UUID for admin holidays from Ahmed) | `date-index`, `year-index` | reads and writes the Calendarific cache. A year is fetched from Calendarific until it has `holiday-eg-` items; admin holidays never block it. The API shows both kinds, one per date (the admin one wins) |
 | `ProcessedEvents` | `event_id` | | reads and writes (mine only) |
 | `Users` | `id` | `email-index` | reads |
 | `Sessions` | `id` (= SHA-256 of the token) | `token-hash-index` | reads |

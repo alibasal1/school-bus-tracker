@@ -36,7 +36,7 @@ Test data: `scripts/seed-floci.js` (2 test routes) and `scripts/make-test-sessio
 **Note on ST-04.** On Neon this was a SQL injection test. DynamoDB has no SQL, so
 the attack to try is NoSQL style: an operator object (`{"$ne": null}`) where a
 plain id is expected, or a quote trick (`' OR 1=1`). `services/ids.js` only
-accepts strings of letters, digits, `-` and `_`, and the services only ever put
+accepts strings of letters, digits, `-`, `_` and `:`, and the services only ever put
 values in `Key` and `ExpressionAttributeValues`, never in the expression text.
 
 **Note on ST-11.** Floci stores the API Gateway throttle (rate 10, burst 20) but

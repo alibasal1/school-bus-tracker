@@ -51,6 +51,35 @@ describe('Calendarific holiday cache', () => {
     expect(db.all('Holidays')).toEqual([{ id: 'holiday-eg-2026-01-01', date: '2026-01-01', name: 'New Year', year: '2026' }]);
   });
 
+  test('an admin holiday from Ahmed does not block Calendarific, and both kinds show once per date', async () => {
+    process.env.CALENDARIFIC_API_KEY = 'test-key';
+    // Two admin holidays (random UUID ids): one on its own date, one on a Calendarific date.
+    db.put('Holidays', { id: '0b7e1c2a-1111-4111-8111-111111111111', date: '2026-09-01', name: 'School founding day', year: '2026' });
+    db.put('Holidays', { id: '0b7e1c2a-2222-4222-8222-222222222222', date: '2026-01-07', name: 'Coptic Christmas (school)', year: '2026' });
+    global.fetch = calendarific([
+      { name: 'Coptic Christmas Day', date: { iso: '2026-01-07' } },
+      { name: 'Revolution Day', date: { iso: '2026-01-25' } }
+    ]);
+
+    const list = await holidays.getHolidays(2026);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(list).toEqual([
+      { date: '2026-01-07', name: 'Coptic Christmas (school)' },
+      { date: '2026-01-25', name: 'Revolution Day' },
+      { date: '2026-09-01', name: 'School founding day' }
+    ]);
+  });
+
+  test('a year with Calendarific items is not fetched again, and admin holidays are merged in', async () => {
+    db.put('Holidays', { id: 'holiday-eg-2026-01-25', date: '2026-01-25', name: 'Revolution Day', year: '2026' });
+    db.put('Holidays', { id: '0b7e1c2a-1111-4111-8111-111111111111', date: '2026-09-01', name: 'School founding day', year: '2026' });
+    global.fetch = jest.fn();
+
+    const list = await holidays.getHolidays(2026);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(list.map((h) => h.date)).toEqual(['2026-01-25', '2026-09-01']);
+  });
+
   test('more than 25 holidays are saved in batches of 25', async () => {
     process.env.CALENDARIFIC_API_KEY = 'test-key';
     const list = Array.from({ length: 30 }, (_, i) => {
