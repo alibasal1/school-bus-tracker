@@ -1,0 +1,37 @@
+# Real account test: Ahmed's backend and my service on the same Floci
+# 2026-11-27, Chromium (Playwright) at 1280x800
+#
+# Setup
+#   My Floci: container floci-floci-1 (network floci_default).
+#   Ahmed's backend and worker: his code unchanged, built from his zip, run on that same
+#   Floci network. His start script made his tables, queue bus-tracker-notifications-queue,
+#   log group, IAM roles, ElastiCache, ECS and his REST API Gateway (id 87634de720).
+#   My service: http://9e60eb42eb.execute-api.localhost.floci.io:4566 (HTTP API + Lambda).
+#   Frontend: npx vite with VITE_API_GATEWAY_BASE=/restapis/87634de720/local/_user_request_
+#   (Ahmed's pages) and VITE_FAVORITES_API_URL=<my API> (My stops and Alerts), both set on the
+#   command line only. No shared file was changed.
+#   The account email and password are kept in test-tokens.txt outside every repo.
+#
+# Result
+OK   1. Signup (Ahmed POST /api/users) - new user 09b76cb7-e7e8-4417-ab5f-9cb49a75f341, role parent
+OK   2. My stops loads for the new account - empty list, form has the routes
+OK   3. Save a stop - Stop saved.
+OK   4. Alerts shows both - boarding (my queue) and trip change (Ahmed worker)
+OK   5. Mark read on Ahmed alert id with ":" - Alerts table is_read = True
+OK   6. Login (Ahmed POST /api/sessions) - new session saved
+OK   7. My stops after a fresh login - saved stop is still there
+#
+# API calls the browser made (method, status, which API, path)
+POST 201 ahmed users
+GET 200 ali favorites/options
+GET 200 ali holidays
+GET 200 ali favorites
+POST 201 ali favorites
+GET 200 ali alerts
+PATCH 200 ali alerts/evt-real-1795732325079:09b76cb7-e7e8-4417-ab5f-9cb49a75f341
+POST 200 ahmed sessions
+#
+# Screenshots: frontend-real-01 to frontend-real-05.
+# Note: after signup and login, Ahmed's pages go to #/schedule, where his Schedule page crashes
+# for a signed-in user (it reads eta.stops while eta is null). The test reloads the page after
+# moving to My stops or Alerts. This is in his SchedulePage.jsx, not in my pages.
