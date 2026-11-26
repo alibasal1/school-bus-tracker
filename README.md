@@ -111,7 +111,8 @@ npm test
 
 The Jest tests use an in-memory fake of DynamoDB (`tests/helpers/fakeDynamo.js`),
 so no real database is needed. Security tests on the deployed API:
-[docs/security-tests.md](docs/security-tests.md).
+[docs/security-tests.md](docs/security-tests.md). Threats and their controls:
+[docs/threat-model.md](docs/threat-model.md).
 
 ## Where the secrets live
 

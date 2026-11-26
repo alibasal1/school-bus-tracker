@@ -7,6 +7,8 @@ The service runs on 7 AWS services: Lambda, API Gateway (HTTP API), DynamoDB,
 SQS (main queue + DLQ), CloudWatch, Secrets Manager and KMS, with a
 least-privilege IAM role. EventBridge and SNS were removed (see README).
 
+The threats these controls answer are in [threat-model.md](threat-model.md) (STRIDE, 10 threats).
+
 ## 1. Controls and where they are enforced
 
 | # | Control | Where it is enforced | What it stops |

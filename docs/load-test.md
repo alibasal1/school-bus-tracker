@@ -2,9 +2,53 @@
 
 Owner: Ali (246090). Team 14, 26CSCN29H.
 
-**Note (26 Nov):** these runs were measured on the Neon version of the service (git tag `neon-version`), before the move to DynamoDB. They have not been repeated on DynamoDB yet.
+## Summary: before and after
 
-## What was run
+Same script (`k6/favorites-load.js`), same Lab 8 stages (20 users for 30 s, a spike to
+100 for 30 s, then down to 0 in 10 s) and same thresholds (p95 < 500 ms, failed < 5 %).
+Both runs are on Floci, through API Gateway, with the parent1 test token.
+
+| Metric | Before (Neon), 24 Nov | After (DynamoDB), 27 Nov |
+|---|---|---|
+| Requests | 1072 (12.0 per second) | 2141 (21.5 per second) |
+| Iterations | 536 (6.0 per second) | 1065 (10.7 per second) |
+| Failed requests (`http_req_failed`) | 0.00 % | 0.00 % |
+| 429 answers (`rate_limited_429`) | 0 | 721 |
+| Response time, median | 458 ms | 9.1 ms |
+| Response time, p(90) | 7.02 s | 212.62 ms |
+| Response time, p(95) | 21.22 s | 1.48 s |
+| Response time, max | 43.09 s | 52.77 s |
+| Threshold p95 < 500 ms | **Not passed** | **Not passed** |
+| Threshold failed < 5 % | Pass | Pass |
+
+Evidence: before `evidence/neon-version/k6-run.txt`, after `evidence/k6-dynamodb.txt`.
+The thresholds were not changed to make a run pass.
+
+## After (DynamoDB), 27 Nov
+
+- Target: `http://9e60eb42eb.execute-api.localhost.floci.io:4566`
+- Date: 2026-11-26, 22:45 UTC (00:45 on 27 Nov in Cairo).
+- Warm run: 65 s wait so the rate limit window was empty, then 5 × `GET /api/health`
+  (all 200, 32 to 76 ms).
+- Full output: `evidence/k6-dynamodb.txt`.
+
+### Why the numbers differ
+
+1. **No more trips to Neon over the internet.** DynamoDB runs inside Floci on the same PC.
+   The median fell from 458 ms to 9.1 ms, and p95 from 21.22 s to 1.48 s.
+2. **The app rate limit now answers.** 721 requests got 429 from `middleware/rateLimit.js`
+   (60 a minute per source IP). All the load comes from one PC, so one IP. A 429 takes a
+   few milliseconds, which also pulls the median down. In the Neon run the requests were
+   spread over Lambda copies that Floci kept replacing, so no copy reached 60.
+3. **p95 is still over 500 ms.** Floci starts Lambda copies as Docker containers while
+   the load grows, and requests wait for a free copy (max 52.77 s). One laptop runs k6,
+   Docker, Floci and every copy at the same time. This is the laptop setup, not real AWS.
+
+## Before (Neon), 24 Nov
+
+These runs were measured on the Neon version of the service (git tag `neon-version`).
+
+### What was run
 
 - Script: `k6/favorites-load.js`, in the shape of Lab 8.
 - Tool: k6 v2.4.0 on Windows 11.
@@ -27,21 +71,21 @@ Owner: Ali (246090). Team 14, 26CSCN29H.
 k6 run -e API_URL=$API_URL -e TOKEN=<PARENT1_TOKEN> k6/favorites-load.js
 ```
 
-Full output: `evidence/k6-run.txt`.
+Full output: `evidence/neon-version/k6-run.txt`.
 
-### Why 429s were expected
+#### Why 429s were expected
 
 The whole load comes from one machine, so every request has the same source IP, and
 `middleware/rateLimit.js` allows 60 requests a minute per IP. Far more than 60
 `/api/holidays` requests a minute were sent, so 429 answers were expected.
 `/api/health` is never limited.
 
-## Results
+### Results
 
 Run A is the deployed service on Floci (the run above). Run B is the same script,
 same stages, thresholds and PARENT1 token, against `npm start` on the PC
 (`http://localhost:3003`, 2026-11-24 18:21 UTC, warmed with 5 × `/api/health` and
-1 × `/api/holidays` first). Full output of Run B: `evidence/k6-run-pc.txt`.
+1 × `/api/holidays` first). Full output of Run B: `evidence/neon-version/k6-run-pc.txt`.
 
 | Metric | Run A: Floci (API Gateway + Lambda) | Run B: Express on the PC, no Floci |
 |---|---|---|
@@ -64,19 +108,19 @@ same stages, thresholds and PARENT1 token, against `npm start` on the PC
 
 The thresholds were not changed to make either run pass.
 
-### Why Run B is so different
+#### Why Run B is so different
 
 1. On the PC there is one Node process and no Floci in front of it, so no request waits for a Lambda copy to start or to be free; that wait was most of Run A's 21 s.
 2. One process means one rate-limit count, so after the first 60 `/api/holidays` requests a minute every one got an instant 429 (2537 of them), while Floci spread Run A over several copies and none got a 429.
 3. Most of Run B's requests are a `/api/health` or a 429 answered in about 1 ms without touching Neon, so its p95 of 1.13 ms mostly measures those; the 87 real `/api/holidays` answers still took about 435 ms each, the trip to Neon, the same as on Floci.
 
-## Why Run A p95 is over 500 ms
+### Why Run A p95 is over 500 ms
 
 1. Lambda on Floci: each copy is a Docker container that Floci starts while the load grows, and requests wait in Floci for a free copy; `/api/health` took 6 ms inside the Lambda but seconds at k6, so most of the time is that wait, not our code.
 2. Every `/api/holidays` request goes from my laptop to Neon over the internet (a session check and the holidays cache), which is about 460 ms even when nothing else is busy.
 3. One laptop runs k6, Docker, Floci and every Lambda copy at the same time, so at 100 users they all compete for the same CPU.
 
-## Why Run A had no 429s
+### Why Run A had no 429s
 
 The rate limit counts in memory, one count per Lambda copy (see `docs/security-controls.md`).
 Floci ran the requests on several copies, and `docker ps` right after the run showed
@@ -87,7 +131,7 @@ does answer 429 when the requests reach one copy (`evidence/ST-11.txt`). On real
 shared limit is the API Gateway stage throttle (10 per second, burst 20), which Floci
 does not enforce.
 
-## What this shows, and what it does not
+### What this shows, and what it does not
 
 - No request failed: under a spike to 100 users every answer was a 200.
 - The latency numbers measure this laptop setup (Floci queueing, Neon over the internet,
