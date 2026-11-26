@@ -1,0 +1,20 @@
+$ curl -i http://22b92e5059.execute-api.localhost.floci.io:4566/api/favorites -H "Authorization: Bearer <PARENT1_TOKEN>"
+# 2026-11-24T02:30:31Z
+HTTP/1.1 200 OK
+cache-control: no-store
+content-length: 539
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Tue, 24 Nov 2026 02:30:33 GMT
+etag: W/"21b-AHBM4sD9F9RCJmxXN+tRLdGXdXQ"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: d68c8b9a-8c6b-4daa-9c68-735dc9bdf1ba
+x-amz-request-id: d68c8b9a-8c6b-4daa-9c68-735dc9bdf1ba
+x-amzn-RequestId: d68c8b9a-8c6b-4daa-9c68-735dc9bdf1ba
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"favorites":[{"id":"e97e177e-d96e-4006-a7f3-830632099d86","routeId":"33333333-3333-4333-8333-333333333333","routeName":"Test Route","stopId":"55555555-5555-4555-8555-555555555555","stopName":"Test Stop One","arrivalFrom":"07:10:00","arrivalTo":"07:20:00","noBusToday":false},{"id":"06ac77f4-2fae-4d00-a5d9-951e2b820dbc","routeId":"33333333-3333-4333-8333-333333333333","routeName":"Test Route","stopId":"66666666-6666-4666-8666-666666666666","stopName":"Test Stop Two","arrivalFrom":"07:25:00","arrivalTo":"07:35:00","noBusToday":false}]}

@@ -1,0 +1,23 @@
+# ST-06: parent2 deletes parent1 favorite e97e177e-d96e-4006-a7f3-830632099d86
+# 2026-11-24T02:36:25Z
+$ curl -s -i -X DELETE http://22b92e5059.execute-api.localhost.floci.io:4566/api/favorites/e97e177e-d96e-4006-a7f3-830632099d86 -H Authorization: Bearer <PARENT2_TOKEN>
+HTTP/1.1 404 Not Found
+cache-control: no-store
+content-length: 62
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Tue, 24 Nov 2026 02:36:26 GMT
+etag: W/"3e-bcVppXnTMh8e6SjEJUZnnPyL38Q"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: 58549346-ea8a-4a2c-bae4-7c134e4420ca
+x-amz-request-id: 58549346-ea8a-4a2c-bae4-7c134e4420ca
+x-amzn-RequestId: 58549346-ea8a-4a2c-bae4-7c134e4420ca
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"NOT_FOUND","message":"Favorite not found."}}
+# ST-06 follow-up: parent1 still has favorite e97e177e-d96e-4006-a7f3-830632099d86
+"id":"e97e177e-d96e-4006-a7f3-830632099d86"

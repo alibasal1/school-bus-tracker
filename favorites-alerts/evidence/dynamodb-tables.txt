@@ -1,0 +1,35 @@
+# DynamoDB tables and KMS encryption on Floci
+# 2026-11-26T21:39:53Z
+$ aws dynamodb list-tables --query TableNames --output text
+Alerts
+Favorites
+Holidays
+ProcessedEvents
+Routes
+Sessions
+Stops
+TripStops
+Trips
+Users
+
+# my key: arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc, rotation: True
+$ aws dynamodb describe-table --table-name Favorites --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "user-id-index" ], "arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc" ] 
+$ aws dynamodb describe-table --table-name Alerts --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "user-id-index" ], "arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc" ] 
+$ aws dynamodb describe-table --table-name Holidays --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "date-index", "year-index" ], "arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc" ] 
+$ aws dynamodb describe-table --table-name ProcessedEvents --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "event_id" ], null, "arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc" ] 
+$ aws dynamodb describe-table --table-name Users --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "email-index" ], null ] 
+$ aws dynamodb describe-table --table-name Sessions --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "token-hash-index" ], null ] 
+$ aws dynamodb describe-table --table-name Routes --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "name-index", "area-index" ], null ] 
+$ aws dynamodb describe-table --table-name Stops --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "route-id-index" ], null ] 
+$ aws dynamodb describe-table --table-name Trips --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "id" ], [ "route-id-index" ], null ] 
+$ aws dynamodb describe-table --table-name TripStops --query 'Table.[KeySchema[].AttributeName, GlobalSecondaryIndexes[].IndexName, SSEDescription.KMSMasterKeyArn]' --output json
+[ [ "trip_id", "stop_id" ], null, null ] 

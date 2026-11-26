@@ -1,0 +1,49 @@
+$ k6 run -e API_URL=http://9e60eb42eb.execute-api.localhost.floci.io:4566 -e TOKEN=<PARENT1_TOKEN> k6/favorites-load.js
+# 2026-11-26T22:45:29Z, k6.exe v2.4.0, Windows 11, Floci in Docker Desktop on the same PC
+# DynamoDB version of the service. Same script, stages and thresholds as the Neon run.
+# waiting 65 s so the app rate limit window is empty, then 5 x GET /api/health to warm the Lambda:
+# warm-up GET /api/health -> 200 0.075942s
+# warm-up GET /api/health -> 200 0.042352s
+# warm-up GET /api/health -> 200 0.040801s
+# warm-up GET /api/health -> 200 0.031869s
+# warm-up GET /api/health -> 200 0.036498s
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+     execution: local
+        script: k6/favorites-load.js
+        output: -
+     scenarios: (100.00%) 1 scenario, 100 max VUs, 1m40s max duration (incl. graceful stop):
+              * default: Up to 100 looping VUs for 1m10s over 3 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+  █ THRESHOLDS 
+    http_req_duration
+    ✗ 'p(95)<500' p(95)=1.48s
+    http_req_failed
+    ✓ 'rate<0.05' rate=0.00%
+  █ TOTAL RESULTS 
+    checks_total.......: 2141    21.517425/s
+    checks_succeeded...: 100.00% 2141 out of 2141
+    checks_failed......: 0.00%   0 out of 2141
+    ✓ health is 200
+    ✓ holidays is 200 or 429
+    CUSTOM
+    ok_200_duration................: avg=1.88s min=3.61ms   med=10.38ms max=52.77s p(90)=824.99ms p(95)=12.85s
+    rate_limited_429...............: 721    7.246176/s
+    HTTP
+    http_req_duration..............: avg=1.27s min=3.61ms   med=9.1ms   max=52.77s p(90)=212.62ms p(95)=1.48s 
+      { expected_response:true }...: avg=1.27s min=3.61ms   med=9.1ms   max=52.77s p(90)=212.62ms p(95)=1.48s 
+    http_req_failed................: 0.00%  0 out of 2141
+    http_reqs......................: 2141   21.517425/s
+    EXECUTION
+    iteration_duration.............: avg=3.34s min=517.24ms med=1.1s    max=53.48s p(90)=2.57s    p(95)=26.17s
+    iterations.....................: 1065   10.703436/s
+    vus............................: 2      min=1         max=99 
+    vus_max........................: 100    min=100       max=100
+    NETWORK
+    data_received..................: 1.9 MB 19 kB/s
+    data_sent......................: 338 kB 3.4 kB/s
+default ✓ [ 100% ] 000/100 VUs  1m10s
+time="2026-11-27T00:48:17+02:00" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"

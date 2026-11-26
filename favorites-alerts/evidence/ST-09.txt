@@ -1,0 +1,30 @@
+# ST-09: the same route event sent twice to the queue (SendMessage, no SNS wrapper)
+# 2026-11-26T21:35:21Z
+# message: infra/events/route-cancelled.json
+#   {
+#     "event_id": "44444444-4444-4444-8444-444444444444",
+#     "event_type": "trip.cancelled",
+#     "route_id": "test-route-1",
+#     "trip_id": "55555555-5555-4555-8555-555555555555",
+#     "occurred_at": "2026-11-24T05:00:00.000Z",
+#     "payload": {
+#       "service_date": "2026-11-24",
+#       "run_type": "morning",
+#       "route_code": "R1",
+#       "reason": "Bus in the garage"
+#     }
+#   }
+before: cancel alerts=0 processedEvents=0
+$ aws sqs send-message --queue-url http://localhost:4566/000000000000/favorites-alerts-queue --message-body file://infra/events/route-cancelled.json   # delivery 1
+34141008-8b4d-4230-b494-0cc0b78922a3
+after delivery 1: cancel alerts=1 processedEvents=1
+$ aws sqs send-message --queue-url http://localhost:4566/000000000000/favorites-alerts-queue --message-body file://infra/events/route-cancelled.json   # delivery 2
+d435cff3-7c7c-4e89-8ab3-ca033a79b212
+after delivery 2: cancel alerts=1 processedEvents=1
+# Lambda log lines:
+Alerts queue: 1 messages, 1 alerts created
+Alerts queue: route event 44444444-4444-4444-8444-444444444444 was already handled, skipped.
+Alerts queue: 1 messages, 0 alerts created
+
+# The alert as parent1 sees it (GET /api/alerts):
+{"id":"fbe9c9b2-193f-4ec2-bc03-33886539f5fc","type":"cancel","message":"Route R1: the morning trip on 2026-11-24 is cancelled. Reason: Bus in the garage","isRead":false,"createdAt":"2026-11-26T21:35:33.850Z"}

@@ -1,0 +1,21 @@
+# ST-05: wrong content type
+# 2026-11-24T02:36:23Z
+$ curl -s -i -X POST http://22b92e5059.execute-api.localhost.floci.io:4566/api/favorites -H Authorization: Bearer <PARENT1_TOKEN> -H Content-Type: text/plain -d routeId=abc
+HTTP/1.1 415 Unsupported Media Type
+cache-control: no-store
+content-length: 94
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Tue, 24 Nov 2026 02:36:24 GMT
+etag: W/"5e-rMC6xVyJn3v+9NUdHCNsJfVxn0g"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: 1048fa15-77f0-4438-b59a-a432517ff00b
+x-amz-request-id: 1048fa15-77f0-4438-b59a-a432517ff00b
+x-amzn-RequestId: 1048fa15-77f0-4438-b59a-a432517ff00b
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"UNSUPPORTED_MEDIA_TYPE","message":"Content-Type must be application/json."}}
