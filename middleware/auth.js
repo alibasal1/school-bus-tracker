@@ -1,10 +1,12 @@
 // Login checks for the Favorites & Alerts service.
 // Login itself is built in school-bus-schedule-arrival (Ahmed). This service never sees a password:
-// it gets a session token and checks it in the shared "sessions" table (same as the other services).
+// it gets a session token and checks it in the shared Sessions table in DynamoDB (same as Ahmed's service).
 //   requireAuth -> who is this? No valid session: 401.
 //   requireRole -> may this role do it? Wrong role: 403.
 const { createHash } = require('crypto');
-const sql = require('../db');
+const { GetCommand } = require('@aws-sdk/lib-dynamodb');
+const db = require('../db/dynamo');
+const { TABLES } = require('../db/tables');
 
 // Every refusal is written down here, so middleware/logger.js can log who was
 // refused and why without each controller having to remember to do it.
@@ -14,6 +16,7 @@ function sendError(res, status, code, message) {
 }
 
 // The database keeps only a SHA-256 hash of the token, never the token itself.
+// In Ahmed's Sessions table the item id IS this hash, so one GetItem finds it.
 function hashToken(token) {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
@@ -31,20 +34,28 @@ async function requireAuth(req, res, next) {
     const token = readToken(req);
     if (!token) return sendError(res, 401, 'UNAUTHENTICATED', 'Please log in.');
 
-    const rows = await sql`
-      SELECT s.user_id, s.expires_at, u.role
-      FROM sessions s
-      JOIN users u ON u.id = s.user_id
-      WHERE s.token_hash = ${hashToken(token)}
-      LIMIT 1
-    `;
-    const session = rows[0];
+    const found = await db.send(new GetCommand({
+      TableName: TABLES.sessions,
+      Key: { id: hashToken(token) }
+    }));
+    const session = found.Item;
+    // expires_at is Unix seconds (Ahmed's design).
     // Same answer for "no session" and "expired", so nobody can probe which tokens exist.
-    if (!session || new Date(session.expires_at).getTime() <= Date.now()) {
+    if (!session || Number(session.expires_at) <= Math.floor(Date.now() / 1000)) {
       return sendError(res, 401, 'UNAUTHENTICATED', 'Your session has expired. Please log in again.');
     }
 
-    req.user = { id: session.user_id, role: session.role };
+    const owner = await db.send(new GetCommand({
+      TableName: TABLES.users,
+      Key: { id: session.user_id }
+    }));
+    const user = owner.Item;
+    // A session whose user was deleted is treated like no session at all.
+    if (!user) {
+      return sendError(res, 401, 'UNAUTHENTICATED', 'Your session has expired. Please log in again.');
+    }
+
+    req.user = { id: user.id, role: user.role, name: user.name };
     return next();
   } catch (err) {
     return next(err);

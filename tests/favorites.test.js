@@ -102,13 +102,40 @@ describe('favorites, alerts, and holidays endpoints', () => {
     expect(response.status).toBe(404);
   });
 
-  test('rejects invalid UUIDs', async () => {
+  test('rejects invalid ids', async () => {
     const response = await require('supertest')(app)
       .post('/api/favorites')
       .set(parent)
-      .send({ routeId: 'not-a-uuid' });
+      .send({ routeId: 'not a valid id!' });
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  // NoSQL injection: an operator object or a SQL-style string as route_id.
+  test.each([
+    ['an operator object', { $ne: null }],
+    ['a SQL-style string', "' OR 1=1"]
+  ])('refuses %s as routeId with 400 and never reaches the database', async (label, value) => {
+    const response = await require('supertest')(app)
+      .post('/api/favorites')
+      .set(parent)
+      .send({ routeId: value });
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: { code: 'VALIDATION_ERROR', message: 'routeId and stopId must be valid ids.' }
+    });
+    expect(favoritesService.addFavorite).not.toHaveBeenCalled();
+  });
+
+  test('accepts the readable route ids Ahmed seeds, like route-cairo-demo', async () => {
+    const response = await require('supertest')(app)
+      .post('/api/favorites')
+      .set(parent)
+      .send({ routeId: 'route-cairo-demo', stopId: 'stop-maadi-1' });
+    expect(response.status).toBe(201);
+    expect(favoritesService.addFavorite).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111', 'route-cairo-demo', 'stop-maadi-1'
+    );
   });
 
   test('rejects a non-JSON request body', async () => {

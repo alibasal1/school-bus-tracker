@@ -1,19 +1,19 @@
 // Route events from Yehia's Route & Stop service. Owner: Ali (246090).
 //
-// Yehia writes every trip change into his route_events outbox, and a forwarder
-// Lambda publishes those rows to the SNS topic school-bus-route-events. This
-// service's SQS queue is subscribed to that topic (raw message delivery), so the
-// messages land in the same queue as the ones Ahmed sends by hand.
+// Yehia's service sends every trip change straight to this service's SQS queue
+// with SendMessage (no SNS in between). His IAM role needs sqs:SendMessage on
+// this queue's ARN only.
 //
-// They do not use this service's own message shape, so they are translated here:
-//   { event_id, event_type: 'trip.cancelled', route_id, trip_id, occurred_at, payload }
+// His events do not use this service's own message shape, so they are translated here:
+//   { event_id, event_type: 'trip.cancelled', route_id, payload }
 //   ->  { type: 'cancel', routeId, message, eventId }
+// route_id may also be inside payload; the top-level one wins.
 const EVENT_TYPES = {
   'trip.cancelled': 'cancel',
   'trip.created': 'trip_change'
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const { validId } = require('./ids');
 const RUN = { morning: 'morning', afternoon: 'afternoon' };
 
 // A route event is recognised by its event_type field, which this service's own
@@ -43,14 +43,15 @@ function buildMessage(eventType, payload) {
 function translate(msg) {
   const type = EVENT_TYPES[msg.event_type];
   if (!type) return { error: `route event ignored: unknown event_type ${msg.event_type}.` };
-  if (!UUID.test(msg.event_id || '')) return { error: 'route event has no valid event_id.' };
-  if (!UUID.test(msg.route_id || '')) return { error: 'route event has no valid route_id.' };
-
   const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {};
+  const routeId = msg.route_id || payload.route_id;
+  if (!validId(msg.event_id)) return { error: 'route event has no valid event_id.' };
+  if (!validId(routeId)) return { error: 'route event has no valid route_id.' };
+
   return {
     message: {
       type,
-      routeId: msg.route_id,
+      routeId,
       message: buildMessage(msg.event_type, payload),
       eventId: msg.event_id,
       eventType: msg.event_type

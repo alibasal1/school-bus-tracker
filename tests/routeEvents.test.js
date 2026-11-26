@@ -1,10 +1,10 @@
-// Tests for the route events coming from Yehia's SNS topic.
+// Tests for the route events Yehia sends straight to the SQS queue.
 jest.mock('../services/alerts', () => ({
   createAlert: jest.fn().mockResolvedValue({ id: 'a1' }),
   createAlertsForRoute: jest.fn().mockResolvedValue([{ id: 'a1' }, { id: 'a2' }])
 }));
 jest.mock('../services/processedEvents', () => ({ claimEvent: jest.fn() }));
-jest.mock('../db', () => jest.fn());
+jest.mock('../db/dynamo', () => require('./helpers/fakeDynamo').createFake());
 
 const alerts = require('../services/alerts');
 const processedEvents = require('../services/processedEvents');
@@ -62,8 +62,14 @@ describe('recognising and translating route events', () => {
 
   test('an unknown event type, or a missing id, is reported not translated', () => {
     expect(translate({ ...cancelled(), event_type: 'route.deleted' }).error).toMatch(/unknown event_type/);
-    expect(translate({ ...cancelled(), event_id: 'nope' }).error).toMatch(/event_id/);
-    expect(translate({ ...cancelled(), route_id: 'nope' }).error).toMatch(/route_id/);
+    expect(translate({ ...cancelled(), event_id: 'no pe!' }).error).toMatch(/event_id/);
+    expect(translate({ ...cancelled(), route_id: "' OR 1=1" }).error).toMatch(/route_id/);
+  });
+
+  test('route_id may also come inside payload', () => {
+    const event = cancelled({ route_id: 'route-cairo-demo' });
+    delete event.route_id;
+    expect(translate(event).message.routeId).toBe('route-cairo-demo');
   });
 });
 

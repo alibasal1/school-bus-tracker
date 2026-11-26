@@ -1,4 +1,6 @@
-// Loads the secrets (Neon link, Calendarific key) from AWS Secrets Manager.
+// Loads the secrets (Calendarific key, rate limit) from AWS Secrets Manager.
+// The secret favorites-alerts/app holds CALENDARIFIC_API_KEY and RATE_LIMIT_MAX.
+// There is no database password: DynamoDB access comes from the IAM role.
 // On Lambda: SECRET_ID is set, so we read the secret once when the function starts.
 // On your PC: SECRET_ID is not set, so the values come from .env as before.
 // The secret never appears in the code, in the Lambda settings or in the logs (Lecture 6).

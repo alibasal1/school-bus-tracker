@@ -1,62 +1,89 @@
-// Tests for middleware/auth.js. The database is replaced by a fake, so no real data is used.
-jest.mock('../db', () => jest.fn());
-const sql = require('../db');
+// Tests for middleware/auth.js against a fake DynamoDB, so no real data is used.
+jest.mock('../db/dynamo', () => require('./helpers/fakeDynamo').createFake());
+const db = require('../db/dynamo');
 const express = require('express');
 const request = require('supertest');
 const { requireAuth, requireRole, hashToken } = require('../middleware/auth');
 
 const TOKEN = 'a'.repeat(64);
-const later = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-const earlier = new Date(Date.now() - 60 * 1000).toISOString();
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 const app = express();
 app.get('/parent-only', requireAuth, requireRole('parent'), (req, res) => res.json(req.user));
 
-beforeEach(() => sql.mockReset());
+function addUser(id, role) {
+  db.put('Users', { id, name: `Test ${role}`, email: `${id}@test.local`, role });
+}
+
+function addSession(userId, expiresAt) {
+  const hash = hashToken(TOKEN);
+  db.put('Sessions', { id: hash, token_hash: hash, user_id: userId, expires_at: expiresAt });
+}
+
+const call = () => request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
+
+beforeEach(() => db.reset());
 
 describe('requireAuth and requireRole', () => {
   test('no token -> 401', async () => {
     const res = await request(app).get('/parent-only');
     expect(res.status).toBe(401);
-    expect(sql).not.toHaveBeenCalled();
+    expect(db.calls).toHaveLength(0);
   });
 
   test('token that is too short -> 401 without asking the database', async () => {
     const res = await request(app).get('/parent-only').set('Authorization', 'Bearer abc');
     expect(res.status).toBe(401);
-    expect(sql).not.toHaveBeenCalled();
+    expect(db.calls).toHaveLength(0);
   });
 
   test('unknown token -> 401', async () => {
-    sql.mockResolvedValue([]);
-    const res = await request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
+    const res = await call();
     expect(res.status).toBe(401);
   });
 
   test('expired session -> 401', async () => {
-    sql.mockResolvedValue([{ user_id: 'u1', role: 'parent', expires_at: earlier }]);
-    const res = await request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
+    addUser('u1', 'parent');
+    addSession('u1', nowSeconds() - 60);
+    const res = await call();
     expect(res.status).toBe(401);
   });
 
-  test('valid parent session -> 200 and req.user is set', async () => {
-    sql.mockResolvedValue([{ user_id: 'u1', role: 'parent', expires_at: later }]);
-    const res = await request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
+  test('an expired session and an unknown token get exactly the same answer', async () => {
+    const unknown = await call();
+    addUser('u1', 'parent');
+    addSession('u1', nowSeconds() - 60);
+    const expired = await call();
+    expect(expired.status).toBe(unknown.status);
+    expect(expired.body).toEqual(unknown.body);
+  });
+
+  test('a session whose user no longer exists -> 401', async () => {
+    addSession('ghost', nowSeconds() + 3600);
+    const res = await call();
+    expect(res.status).toBe(401);
+  });
+
+  test('valid parent session -> 200 and req.user is set from the Users table', async () => {
+    addUser('u1', 'parent');
+    addSession('u1', nowSeconds() + 3600);
+    const res = await call();
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: 'u1', role: 'parent' });
+    expect(res.body).toEqual({ id: 'u1', role: 'parent', name: 'Test parent' });
   });
 
   test('valid admin session on a parent route -> 403', async () => {
-    sql.mockResolvedValue([{ user_id: 'u2', role: 'admin', expires_at: later }]);
-    const res = await request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
+    addUser('u2', 'admin');
+    addSession('u2', nowSeconds() + 3600);
+    const res = await call();
     expect(res.status).toBe(403);
   });
 
-  test('the database is searched by the hash, never the raw token', async () => {
-    sql.mockResolvedValue([]);
-    await request(app).get('/parent-only').set('Authorization', `Bearer ${TOKEN}`);
-    const values = sql.mock.calls[0].slice(1);
-    expect(values).toContain(hashToken(TOKEN));
-    expect(values).not.toContain(TOKEN);
+  test('the Sessions table is searched by the hash, never the raw token', async () => {
+    await call();
+    const get = db.calls.find((c) => c.input.TableName === 'Sessions');
+    expect(get.name).toBe('GetCommand');
+    expect(get.input.Key).toEqual({ id: hashToken(TOKEN) });
+    expect(JSON.stringify(db.calls)).not.toContain(TOKEN);
   });
 });
