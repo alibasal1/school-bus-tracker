@@ -10,8 +10,9 @@
     "zip": "node scripts/zip.js"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1178.0",
     "@aws-sdk/client-secrets-manager": "^3.1175.0",
-    "@neondatabase/serverless": "^0.10.4",
+    "@aws-sdk/lib-dynamodb": "^3.1178.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^5.1.0",

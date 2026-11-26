@@ -2,6 +2,10 @@
 # Deploys the Favorites & Alerts service to Floci (or real AWS) with one command:
 #   bash infra/deploy.sh
 # Same commands as Lab 6 and Lab 7, in one file, so anyone can rebuild it.
+# It is safe to run again: everything that already exists is kept or updated.
+#
+# AWS services used: Lambda, API Gateway (HTTP API), DynamoDB, SQS (+ DLQ),
+# CloudWatch (logs, metric filter, alarms), Secrets Manager and KMS, with an IAM role.
 set -e
 export MSYS_NO_PATHCONV=1                # stop Git Bash from changing /api/... into C:/...
 export AWS_PROFILE=${AWS_PROFILE:-floci}
@@ -12,20 +16,23 @@ ROLE=favorites-alerts-api-role
 POLICY=favorites-alerts-access
 API_NAME=favorites-alerts-http-api
 SECRET_NAME=favorites-alerts/app
-RULE=favorites-alerts-daily-holiday
 QUEUE=favorites-alerts-queue
 DLQ=favorites-alerts-dlq
 KEY_ALIAS=alias/favorites-alerts
-TOPIC=favorites-alerts-ops
-# Yehia publishes every trip change to this topic (Route & Stop, transactional outbox)
-ROUTE_TOPIC=school-bus-route-events
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region || echo us-east-1)
+# The Node script that creates the tables talks to the same AWS copy as the CLI.
+ENDPOINT=$(aws configure get endpoint_url 2>/dev/null || true)
+if [ -n "$ENDPOINT" ]; then export AWS_ENDPOINT_URL=$ENDPOINT; fi
+export AWS_REGION=$REGION
+# Inside the Lambda container "localhost" is the container itself. On Floci the
+# function reaches Floci at this address (the same one Floci gives its Lambda containers).
+LAMBDA_ENDPOINT=${LAMBDA_ENDPOINT:-http://localhost.floci.io:4566}
 
-echo "== 0. KMS: our own key that encrypts the secret, rotated every year"
+echo "== 0. KMS: our own key that encrypts the secret and my tables, rotated every year"
 KEY_ID=$(aws kms list-aliases --query "Aliases[?AliasName=='$KEY_ALIAS'].TargetKeyId | [0]" --output text)
 if [ -z "$KEY_ID" ] || [ "$KEY_ID" = "None" ]; then
-  KEY_ID=$(aws kms create-key --description "Encrypts the favorites-alerts secret" \
+  KEY_ID=$(aws kms create-key --description "Encrypts the favorites-alerts secret and tables" \
     --query KeyMetadata.KeyId --output text)
   aws kms create-alias --alias-name $KEY_ALIAS --target-key-id $KEY_ID
 fi
@@ -34,6 +41,9 @@ KEY_ARN=$(aws kms describe-key --key-id $KEY_ID --query KeyMetadata.Arn --output
 mkdir -p out
 # The policy file says KMS_KEY_ARN; put the real key address in a copy
 sed "s#KMS_KEY_ARN#$KEY_ARN#" infra/iam/favorites-alerts-policy.json > out/policy.json
+
+echo "== 0b. DynamoDB: my 4 tables, plus the shared tables if they are missing"
+node scripts/create-tables.js "$KEY_ARN"
 
 echo "== 1. IAM role (who may wear the badge) and policy (what it opens)"
 if ! aws iam get-role --role-name $ROLE >/dev/null 2>&1; then
@@ -58,26 +68,26 @@ aws iam attach-role-policy --role-name $ROLE --policy-arn $POLICY_ARN
 echo "== 2. Build lambda.zip"
 npm run zip --silent
 
-echo "== 3. Secrets Manager: the Neon link, Calendarific key and rate limit go in one secret"
+echo "== 3. Secrets Manager: the Calendarific key and the rate limit go in one secret"
+# There is no database password any more: DynamoDB access comes from the IAM role.
 [ -f .env ] || { echo "Missing .env. Copy .env.example to .env first."; exit 1; }
-mkdir -p out
 : > out/api-url.txt
 node -e "
 require('dotenv').config();
-if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is empty in .env'); process.exit(1); }
-const secret = { DATABASE_URL: process.env.DATABASE_URL,
-  CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '',
+const secret = { CALENDARIFIC_API_KEY: process.env.CALENDARIFIC_API_KEY || '',
   RATE_LIMIT_MAX: process.env.RATE_LIMIT_MAX || '60' };
 require('fs').writeFileSync('out/secret.json', JSON.stringify(secret));
 const v = { NODE_ENV: 'production', SECRET_ID: '$SECRET_NAME',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:5173' };
+if ('$ACCOUNT' === '000000000000') v.AWS_ENDPOINT_URL = '$LAMBDA_ENDPOINT';
 require('fs').writeFileSync('out/lambda-env.json', JSON.stringify({ Variables: v }));"
 if aws secretsmanager describe-secret --secret-id $SECRET_NAME >/dev/null 2>&1; then
   aws secretsmanager update-secret --secret-id $SECRET_NAME \
+    --description "Calendarific key and rate limit for favorites-alerts-api" \
     --kms-key-id $KEY_ARN --secret-string file://out/secret.json >/dev/null
 else
   aws secretsmanager create-secret --name $SECRET_NAME \
-    --description "Neon link and Calendarific key for favorites-alerts-api" \
+    --description "Calendarific key and rate limit for favorites-alerts-api" \
     --kms-key-id $KEY_ARN --secret-string file://out/secret.json >/dev/null
 fi
 rm -f out/secret.json                    # it holds secrets, do not keep it
@@ -140,15 +150,21 @@ aws apigatewayv2 update-stage --api-id $API_ID --stage-name '$default' \
   --default-route-settings ThrottlingBurstLimit=20,ThrottlingRateLimit=10 >/dev/null
 echo "   rate limit: 10 req/s, burst 20"
 
-echo "== 6. EventBridge: every day at 18:00 UTC (8 PM Cairo) run the holiday job"
-aws events put-rule --name $RULE \
-  --schedule-expression "cron(0 18 * * ? *)" \
-  --description "Send tomorrow's holiday alerts to parents" >/dev/null
-aws events put-targets --rule $RULE \
-  --targets "Id"="1","Arn"="arn:aws:lambda:$REGION:$ACCOUNT:function:$FN" >/dev/null
-aws lambda add-permission --function-name $FN --statement-id eventbridge-daily-holiday \
-  --action lambda:InvokeFunction --principal events.amazonaws.com \
-  --source-arn "arn:aws:events:$REGION:$ACCOUNT:rule/$RULE" >/dev/null 2>&1 || true
+echo "== 6. Old parts that are no longer used: EventBridge rule and SNS topic"
+# The daily EventBridge job and SNS were removed from this service. The holiday
+# alert is made when a parent opens the app, and Yehia sends his events straight
+# to the SQS queue. Delete my old ones if this Floci still has them.
+if aws events describe-rule --name favorites-alerts-daily-holiday >/dev/null 2>&1; then
+  aws events remove-targets --rule favorites-alerts-daily-holiday --ids 1 >/dev/null 2>&1 || true
+  aws events delete-rule --name favorites-alerts-daily-holiday
+  echo "   deleted EventBridge rule favorites-alerts-daily-holiday"
+fi
+aws lambda remove-permission --function-name $FN --statement-id eventbridge-daily-holiday >/dev/null 2>&1 || true
+OLD_TOPIC=$(aws sns list-topics --query "Topics[?ends_with(TopicArn, ':favorites-alerts-ops')].TopicArn | [0]" --output text 2>/dev/null || true)
+if [ -n "$OLD_TOPIC" ] && [ "$OLD_TOPIC" != "None" ]; then
+  aws sns delete-topic --topic-arn $OLD_TOPIC
+  echo "   deleted SNS topic favorites-alerts-ops"
+fi
 
 echo "== 7. SQS: the alerts queue (Yehia and Ahmed send here), plus a dead-letter queue"
 DLQ_URL=$(aws sqs create-queue --queue-name $DLQ --query QueueUrl --output text)
@@ -169,107 +185,37 @@ if [ -z "$MAPPING" ] || [ "$MAPPING" = "None" ]; then
   aws lambda create-event-source-mapping --function-name $FN \
     --event-source-arn $QUEUE_ARN --batch-size 10 >/dev/null
 fi
+# My queue's old subscription to Yehia's SNS topic is removed; his topic is not touched.
+OLD_SUBS=$(aws sns list-subscriptions --query "Subscriptions[?Endpoint=='$QUEUE_ARN'].SubscriptionArn" --output text 2>/dev/null || true)
+for SUB in $OLD_SUBS; do
+  if [ "$SUB" != "None" ]; then aws sns unsubscribe --subscription-arn $SUB && echo "   removed old SNS subscription"; fi
+done
+# Yehia sends with SendMessage. His role needs sqs:SendMessage on this queue ARN only.
 echo "QUEUE_URL=$QUEUE_URL" >> out/api-url.txt
-echo "Queue: $QUEUE_URL"
+echo "QUEUE_ARN=$QUEUE_ARN" >> out/api-url.txt
+echo "   queue: $QUEUE_URL"
+echo "   ARN:   $QUEUE_ARN"
 
-echo "== 7b. SNS: subscribe the queue to Yehia route events topic (if it is here)"
-# Yehia Route & Stop service writes trip.created / trip.cancelled into its outbox
-# and a forwarder Lambda publishes them to $ROUTE_TOPIC. Subscribing this queue
-# means a cancelled trip reaches the parents who saved that route, with no direct
-# call between the two services: if this service is down the messages wait in SQS.
-#
-# The topic belongs to Yehia, so this script never creates or changes it. His API
-# still runs on Vercel, so on a fresh Floci the topic is simply not there yet:
-# print a warning and carry on, the deploy must not stop for it.
-ROUTE_TOPIC_ARN=$(aws sns list-topics \
-  --query "Topics[?ends_with(TopicArn, ':$ROUTE_TOPIC')].TopicArn | [0]" --output text 2>/dev/null)
-if [ -z "$ROUTE_TOPIC_ARN" ] || [ "$ROUTE_TOPIC_ARN" = "None" ]; then
-  echo "   WARNING: topic $ROUTE_TOPIC is not on this AWS copy yet, subscription skipped."
-  echo "   Ask Yehia to create it, or run his forwarder here, then run this script again."
-else
-  # The topic may only send to this one queue, nothing else.
-  node -e "
-  const policy = JSON.stringify({ Version: '2012-10-17', Statement: [{
-    Effect: 'Allow', Principal: { Service: 'sns.amazonaws.com' },
-    Action: 'sqs:SendMessage', Resource: '$QUEUE_ARN',
-    Condition: { ArnEquals: { 'aws:SourceArn': '$ROUTE_TOPIC_ARN' } } }] });
-  require('fs').writeFileSync('out/queue-policy.json', JSON.stringify({ Policy: policy }));"
-  aws sqs set-queue-attributes --queue-url $QUEUE_URL --attributes file://out/queue-policy.json
-
-  SUB=$(aws sns list-subscriptions-by-topic --topic-arn $ROUTE_TOPIC_ARN \
-    --query "Subscriptions[?Endpoint=='$QUEUE_ARN'].SubscriptionArn | [0]" --output text 2>/dev/null)
-  if [ -z "$SUB" ] || [ "$SUB" = "None" ]; then
-    SUB=$(aws sns subscribe --topic-arn $ROUTE_TOPIC_ARN --protocol sqs \
-      --notification-endpoint $QUEUE_ARN --query SubscriptionArn --output text)
-  fi
-  # Raw delivery: the body is the event itself, not an SNS envelope.
-  aws sns set-subscription-attributes --subscription-arn $SUB \
-    --attribute-name RawMessageDelivery --attribute-value true
-  # Only the two events this service understands are delivered. Anything else
-  # Yehia adds later stays out of the queue instead of being received and dropped.
-  node -e "require('fs').writeFileSync('out/filter-policy.json',
-    JSON.stringify({ event_type: ['trip.cancelled', 'trip.created'] }));"
-  aws sns set-subscription-attributes --subscription-arn $SUB \
-    --attribute-name FilterPolicy --attribute-value "$(cat out/filter-policy.json)"
-  echo "   subscribed to $ROUTE_TOPIC_ARN (raw delivery, trip.cancelled and trip.created only)"
-fi
-
-echo "== 8. CloudWatch alarms: tell us when something goes wrong (SNS topic $TOPIC)"
-# Lecture 8: metrics detect the problem, logs explain it.
-if TOPIC_ARN=$(aws sns create-topic --name $TOPIC --query TopicArn --output text 2>/dev/null) && \
-   aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-lambda-errors \
+echo "== 8. CloudWatch alarms: tell us when something goes wrong"
+# Lecture 8: metrics detect the problem, logs explain it. The alarms have no
+# action (there is no SNS topic any more): their state shows in CloudWatch.
+if aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-lambda-errors \
      --alarm-description "The Lambda failed at least once in 5 minutes" \
      --namespace AWS/Lambda --metric-name Errors \
      --dimensions Name=FunctionName,Value=$FN \
      --statistic Sum --period 300 --evaluation-periods 1 \
      --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
-     --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN && \
+     --treat-missing-data notBreaching && \
    aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-dlq-not-empty \
      --alarm-description "A queue message failed 3 times and is waiting in the dead-letter queue" \
      --namespace AWS/SQS --metric-name ApproximateNumberOfMessagesVisible \
      --dimensions Name=QueueName,Value=$DLQ \
      --statistic Maximum --period 300 --evaluation-periods 1 \
      --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold \
-     --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN; then
-  echo "Alarms: favorites-alerts-lambda-errors, favorites-alerts-dlq-not-empty -> $TOPIC"
-  if [ -n "$ALARM_EMAIL" ]; then
-    aws sns subscribe --topic-arn $TOPIC_ARN --protocol email \
-      --notification-endpoint "$ALARM_EMAIL" >/dev/null
-    echo "Alarm emails go to $ALARM_EMAIL (confirm the email AWS sends you)"
-  fi
+     --treat-missing-data notBreaching; then
+  echo "   alarms: favorites-alerts-lambda-errors, favorites-alerts-dlq-not-empty"
 else
-  echo "(this AWS copy has no CloudWatch alarms; skipped)"
-fi
-
-echo "== 8b. CloudWatch metric filter: count the refused requests in the logs"
-# Lecture 8: a metric filter turns a log line into a number we can alarm on.
-# middleware/logger.js writes one SECURITY line per refused request, so this
-# counts 401, 403, 404, 429 and 5xx answers. Five or more in five minutes is
-# either a bug or somebody trying tokens, and both are worth a message.
-LOG_GROUP=/aws/lambda/$FN
-FOUND_LOG=$(aws logs describe-log-groups --log-group-name-prefix $LOG_GROUP \
-  --query "logGroups[0].logGroupName" --output text 2>/dev/null)
-if [ -z "$FOUND_LOG" ] || [ "$FOUND_LOG" = "None" ]; then
-  echo "   $LOG_GROUP does not exist yet: call the API once, then run this script again."
-elif aws logs put-metric-filter --log-group-name $LOG_GROUP \
-  --filter-name favorites-alerts-security-denied \
-  --filter-pattern "SECURITY" \
-  --metric-transformations \
-      metricName=favorites-alerts-security-denied,metricNamespace=SchoolBus/FavoritesAlerts,metricValue=1,defaultValue=0 \
-  2>/dev/null; then
-  echo "   metric filter favorites-alerts-security-denied is in place"
-  if [ -n "$TOPIC_ARN" ]; then
-    aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-security-denied-alarm \
-      --alarm-description "5 or more refused requests in 5 minutes" \
-      --namespace SchoolBus/FavoritesAlerts --metric-name favorites-alerts-security-denied \
-      --statistic Sum --period 300 --evaluation-periods 1 \
-      --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
-      --treat-missing-data notBreaching --alarm-actions $TOPIC_ARN 2>/dev/null \
-      && echo "   alarm favorites-alerts-security-denied-alarm -> $TOPIC" \
-      || echo "   (this AWS copy has no CloudWatch alarms; alarm skipped)"
-  fi
-else
-  echo "   (this AWS copy has no metric filters; skipped)"
+  echo "   (this AWS copy has no CloudWatch alarms; skipped)"
 fi
 
 if [ "$ACCOUNT" = "000000000000" ]; then
@@ -279,16 +225,45 @@ else
 fi
 echo "API_URL=$API_URL" >> out/api-url.txt
 
-echo "== 9. Test the API"
+echo "== 9. Test the API (this call also creates the log group on a fresh Floci)"
 curl -s --max-time 30 "$API_URL/api/health" || echo "(no answer yet: wait a few seconds and open the address below in your browser)"; echo
 
-echo "== 10. Test the daily job now (same event EventBridge sends)"
-aws lambda invoke --function-name $FN \
-  --payload file://infra/events/daily-holiday.json \
-  --cli-binary-format raw-in-base64-out out/daily-holiday-result.json >/dev/null \
-  && cat out/daily-holiday-result.json; echo
+echo "== 10. CloudWatch metric filter: count the refused requests in the logs"
+# Lecture 8: a metric filter turns a log line into a number we can alarm on.
+# middleware/logger.js writes one SECURITY line per refused request, so this
+# counts 401, 403, 404, 409, 415, 429 and 5xx answers. Five or more in five
+# minutes is either a bug or somebody trying tokens.
+LOG_GROUP=/aws/lambda/$FN
+FOUND_LOG=""
+for i in 1 2 3 4 5; do
+  FOUND_LOG=$(aws logs describe-log-groups --log-group-name-prefix $LOG_GROUP \
+    --query "logGroups[0].logGroupName" --output text 2>/dev/null || true)
+  if [ -n "$FOUND_LOG" ] && [ "$FOUND_LOG" != "None" ]; then break; fi
+  sleep 2
+done
+if [ -z "$FOUND_LOG" ] || [ "$FOUND_LOG" = "None" ]; then
+  echo "   $LOG_GROUP does not exist yet: call the API once, then run this script again."
+elif aws logs put-metric-filter --log-group-name $LOG_GROUP \
+  --filter-name favorites-alerts-security-denied \
+  --filter-pattern "SECURITY" \
+  --metric-transformations \
+      metricName=favorites-alerts-security-denied,metricNamespace=SchoolBus/FavoritesAlerts,metricValue=1,defaultValue=0 \
+  2>/dev/null; then
+  echo "   metric filter favorites-alerts-security-denied is in place"
+  aws cloudwatch put-metric-alarm --alarm-name favorites-alerts-security-denied-alarm \
+    --alarm-description "5 or more refused requests in 5 minutes" \
+    --namespace SchoolBus/FavoritesAlerts --metric-name favorites-alerts-security-denied \
+    --statistic Sum --period 300 --evaluation-periods 1 \
+    --threshold 5 --comparison-operator GreaterThanOrEqualToThreshold \
+    --treat-missing-data notBreaching 2>/dev/null \
+    && echo "   alarm favorites-alerts-security-denied-alarm" \
+    || echo "   (this AWS copy has no CloudWatch alarms; alarm skipped)"
+else
+  echo "   (this AWS copy has no metric filters; skipped)"
+fi
 
 echo
 echo "Done. Your API address: $API_URL"
 echo "Queue for Yehia and Ahmed: $QUEUE_URL"
+echo "If the address changed, put it in school-bus-frontend/.env.local (VITE_FAVORITES_API_URL)."
 echo "Logs: MSYS_NO_PATHCONV=1 aws logs tail /aws/lambda/$FN --since 15m --format short"

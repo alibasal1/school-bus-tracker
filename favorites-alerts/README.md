@@ -3,7 +3,7 @@
 School Bus Route Tracker, Team 14 (Lab Group A-2), 26CSCN29H.
 
 **Service:** Favorites & Alerts
-**Owner:** Ali (246090)
+**Owner:** Ali Mohsen (246090)
 **Local port:** 3003
 
 This repo holds one backend service only. It covers: favorites (My stops), alerts, holidays.
@@ -17,132 +17,118 @@ This repo holds one backend service only. It covers: favorites (My stops), alert
 | `school-bus-schedule-arrival` | Schedule & Arrival API + Signup / Login | Ahmed |
 | `school-bus-favorites-alerts` | Favorites & Alerts API | Ali |
 
-All three APIs use the same Neon database. Each service only writes to its own tables.
-Login happens in `school-bus-schedule-arrival`. The other services check the same
-session token with their own copy of `middleware/auth.js`.
+## Why DynamoDB
+
+The team uses **one database for all three services: DynamoDB**. Before, each
+service talked to Neon (Postgres) over the internet. Now every table lives in
+the same AWS account (Floci on our PCs), so:
+
+- one place for all data, with the same table design for everyone (Ahmed's design),
+- no database password: access comes from each Lambda's IAM role,
+- each service writes only its own tables and reads the others.
+
+The old Neon version is kept in the git tag `neon-version`, and its evidence is in
+`evidence/neon-version/`.
+
+## Tables
+
+All keys are strings. Billing is PAY_PER_REQUEST. Same schema as Ahmed's
+`scripts/provision/dynamodb.js`.
+
+| Table | Key | Index | This service |
+|---|---|---|---|
+| `Favorites` | `id` | `user-id-index` (user_id) | reads and writes |
+| `Alerts` | `id` | `user-id-index` (user_id) | reads and writes |
+| `Holidays` | `id` (`holiday-eg-<date>` for the Calendarific cache, a UUID for admin holidays from Ahmed) | `date-index`, `year-index` | reads and writes the Calendarific cache. A year is fetched from Calendarific until it has `holiday-eg-` items; admin holidays never block it. The API shows both kinds, one per date (the admin one wins) |
+| `ProcessedEvents` | `event_id` | | reads and writes (mine only) |
+| `Users` | `id` | `email-index` | reads |
+| `Sessions` | `id` (= SHA-256 of the token) | `token-hash-index` | reads |
+| `Routes` | `id` | `name-index`, `area-index` | reads |
+| `Stops` | `id` | `route-id-index` | reads |
+| `Trips` | `id` | `route-id-index` | reads |
+| `TripStops` | `trip_id` + `stop_id` | | reads (`arrive_from`, `arrive_to`) |
+
+## The 7 AWS services
+
+| Service | What it does here |
+|---|---|
+| Lambda | Runs the Express API (and the queue consumer) only when something comes in |
+| API Gateway (HTTP API) | The one web address. Only our routes reach Lambda. Throttling 10 req/s, burst 20 |
+| DynamoDB | The team database (tables above) |
+| SQS + dead-letter queue | Yehia and Ahmed send alert messages here. A message that fails 3 times moves to the DLQ |
+| CloudWatch | Logs, a metric filter that counts SECURITY lines, and 3 alarms |
+| Secrets Manager | Holds the Calendarific key and the rate limit, not in code or Lambda settings |
+| KMS | Our own key `alias/favorites-alerts` (rotated every year) encrypts the secret and my 4 tables |
+
+IAM gives the Lambda a least-privilege role (`infra/iam/favorites-alerts-policy.json`).
+
+**Removed: EventBridge and SNS.** The daily EventBridge job sent the "tomorrow is a
+holiday" alert. The same alert is now made when the parent opens My stops or Alerts
+(`ensureTomorrowHolidayAlert`), so the scheduled job was extra work. SNS was used for
+the alarm emails and to forward Yehia's events. Yehia now sends straight to my SQS
+queue, and the alarms show their state in CloudWatch without an SNS action. Fewer
+services means less to secure and to explain.
 
 ## Folders
 
 ```
-server.js      starts this service only
+server.js      starts this service on your PC
+lambda.js      runs it on Lambda: HTTP requests and SQS messages
 routes/        URLs and which role can call them
-controllers/   checks the request (400) and calls the service
-services/      all SQL lives here
-middleware/    logger.js, auth.js (requireAuth, requireRole)
-db/            index.js (Neon), schema.sql
+controllers/   checks the request (400 / 415) and calls the service
+services/      all DynamoDB calls live here
+middleware/    logger, auth (requireAuth, requireRole), rate limit, security headers
+db/            dynamo.js (one DynamoDB client), tables.js, pages.js
+scripts/       tables, test data and test logins for Floci
+infra/         deploy.sh, IAM policy, sample events
 ```
 
-## Run on your laptop
-
-```
-copy .env.example .env      (then put the real values inside)
-npm install
-npm run dev
-```
-
-Check: open http://localhost:3003/api/health
-
-## Database setup (only once, in the Neon SQL Editor)
-
-Run the files in this order:
-1. `school-bus-schedule-arrival/db/auth-schema.sql`
-2. `school-bus-route-stop/db/schema.sql`
-3. `school-bus-schedule-arrival/db/schema.sql`
-4. `school-bus-favorites-alerts/db/schema.sql`
-
-## Git rules
-
-- Work on a branch, open a pull request, merge after checking it.
-- **Never** commit `.env`. Only `.env.example` is pushed.
-
-## Deploy (Lab 5)
-
-One Vercel project for this repo. Add the values from `.env.example` in the Vercel dashboard.
-Put the frontend's Vercel link in `CORS_ORIGINS`.
-
-## Deploy to AWS on Floci (Lab 7)
-
-Floci is a free copy of AWS on your laptop. One script builds everything:
-IAM role and policy, the secret in Secrets Manager, the Lambda function, the API Gateway in front of it,
-an EventBridge rule that runs the daily holiday job, and the SQS alerts queue.
+## Run on Floci (Lab 7)
 
 ```
 docker compose -f infra/floci/docker-compose.yml up -d
 export AWS_PROFILE=floci
-bash infra/deploy.sh
+cp .env.example .env              # then put the Calendarific key inside
+npm install
+bash infra/deploy.sh              # builds everything and prints the API address
+node scripts/seed-floci.js        # test routes, stops and trips (only if Routes is empty)
+node scripts/make-test-sessions.js   # 4 test logins, tokens go to ../test-tokens.txt
 ```
 
-The script prints your API address, for example `http://abc123.execute-api.localhost.floci.io:4566`.
 Open `<address>/api/health`: you must see `"runtime":"lambda"`.
 
-Run `bash infra/deploy.sh` again after every code change. It updates the same function.
+If Floci restarts, everything on it is gone: run the three commands again.
+Run `bash infra/deploy.sh` after every code change; it updates the same function.
+`node scripts/cleanup-test-data.js` deletes only the items the two scripts made.
 
-| File | What it is |
-|---|---|
-| `app.js` | The Express app (no listen) |
-| `server.js` | Runs the app on your PC |
-| `lambda.js` | Runs the app on Lambda (serverless-http), after loading the secrets |
-| `infra/events/daily-holiday.json` | The same event EventBridge sends, to test the job by hand |
-| `config/secrets.js` | Reads the Neon link and Calendarific key from Secrets Manager |
-| `services/routeEvents.js` | Turns Yehia's trip events into alerts (see `docs/alerts-queue.md`) |
-| `services/processedEvents.js` | Event id idempotency, so a repeated event creates one alert |
-| `middleware/securityHeaders.js` | The response headers the browser enforces |
-| `scripts/make-test-sessions.js` | Test logins until Ahmed's login page is ready |
-| `scripts/check-trips-columns.js` | Checks whether Neon has Yehia's `trips.service_date` |
-| `k6/favorites-load.js` | Load test (see `docs/load-test.md`) |
-| `infra/iam/trust-policy.json` | Only Lambda may use the role |
-| `infra/iam/favorites-alerts-policy.json` | What the role may do (least privilege) |
-| `infra/deploy.sh` | Builds everything on Floci or real AWS |
+To run the API on your PC instead: `npm run dev` (it uses `AWS_ENDPOINT_URL` from `.env`).
 
-### Where the secrets live
+## Tests
+
+```
+npm test
+```
+
+The Jest tests use an in-memory fake of DynamoDB (`tests/helpers/fakeDynamo.js`),
+so no real database is needed. Security tests on the deployed API:
+[docs/security-tests.md](docs/security-tests.md). Threats and their controls:
+[docs/threat-model.md](docs/threat-model.md).
+
+## Where the secrets live
 
 | Place | What it holds |
 |---|---|
 | `.env` on your PC | The real values. Never pushed to GitHub. |
-| Secrets Manager, secret `favorites-alerts/app` | The same values, on AWS, encrypted with our own KMS key `alias/favorites-alerts` (rotated every year). Only this Lambda's role may read and decrypt it. |
-| Lambda settings | Only `SECRET_ID=favorites-alerts/app`, `CORS_ORIGINS`, `NODE_ENV`. No passwords. |
+| Secrets Manager, `favorites-alerts/app` | `CALENDARIFIC_API_KEY` and `RATE_LIMIT_MAX`, encrypted with `alias/favorites-alerts`. Only this Lambda's role may read and decrypt it. |
+| Lambda settings | `SECRET_ID`, `CORS_ORIGINS`, `NODE_ENV`, and on Floci `AWS_ENDPOINT_URL`. No passwords. |
+| `../test-tokens.txt` | Test login tokens. Outside the repo, never committed. |
 
-To change a key (for example after a leak), edit `.env` and run `bash infra/deploy.sh` again.
+## Alerts from other services
 
-### Daily holiday alert (EventBridge)
+Yehia and Ahmed send one message to `favorites-alerts-queue` with `sqs:SendMessage`.
+See [docs/alerts-queue.md](docs/alerts-queue.md).
 
-Rule `favorites-alerts-daily-holiday` runs every day at 18:00 UTC (8 PM Cairo).
-It calls the same Lambda with an event whose `source` is `aws.events`. `lambda.js` sees this and runs
-`sendHolidayAlertsToAllParents()`: if tomorrow is a holiday, every parent with a favorite gets an alert.
-Nobody has to open the app first, and the admin does nothing.
+## Git rules
 
-Test it by hand:
-```
-aws lambda invoke --function-name favorites-alerts-api \
-  --payload file://infra/events/daily-holiday.json \
-  --cli-binary-format raw-in-base64-out out/result.json
-cat out/result.json
-```
-
-### Alerts queue (SQS)
-
-Yehia and Ahmed are in other repos, so they cannot call `createAlert` directly.
-They send a message to `favorites-alerts-queue`, and this Lambda creates the alerts
-(`services/alertsQueue.js`). Messages that fail 3 times move to `favorites-alerts-dlq`.
-How to send a message: see [docs/alerts-queue.md](docs/alerts-queue.md).
-
-### Alarms (CloudWatch + SNS)
-
-Two CloudWatch alarms send a message to the SNS topic `favorites-alerts-ops`:
-- `favorites-alerts-lambda-errors`: the Lambda failed at least once in 5 minutes.
-- `favorites-alerts-dlq-not-empty`: a queue message failed 3 times and is in the dead-letter queue.
-
-To get the alarms by email: `ALARM_EMAIL=you@example.com bash infra/deploy.sh`, then confirm the email.
-
-## AWS services used and why
-
-| Service | Why | Lecture |
-|---|---|---|
-| Lambda | Runs the API only when a request comes, no server to manage | L3 |
-| API Gateway | One web address, only our routes reach the code | L4, L9 |
-| IAM role and policy | The function may do only what it needs (least privilege) | L6 |
-| Secrets Manager | Neon link and Calendarific key are not in code or Lambda settings | L6 |
-| KMS | Our own key encrypts the secret, rotated every year | L6, L7 |
-| EventBridge | Runs the day-before holiday alert every evening | L3 |
-| SQS + dead-letter queue | Other services send alerts without calling our code; failed messages are kept | L8 |
-| CloudWatch Logs and alarms, SNS | See what happened, and get told when something fails | L8 |
+- Never commit `.env` or a token. Only `.env.example` is pushed.
+- Small commits with clear messages.

@@ -2,20 +2,51 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "WriteOwnTables",
       "Effect": "Allow",
       "Action": [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchWriteItem"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/Favorites",
+        "arn:aws:dynamodb:*:*:table/Favorites/index/*",
+        "arn:aws:dynamodb:*:*:table/Alerts",
+        "arn:aws:dynamodb:*:*:table/Alerts/index/*",
+        "arn:aws:dynamodb:*:*:table/Holidays",
+        "arn:aws:dynamodb:*:*:table/Holidays/index/*",
+        "arn:aws:dynamodb:*:*:table/ProcessedEvents"
+      ]
     },
     {
+      "Sid": "ReadOtherServicesTables",
       "Effect": "Allow",
-      "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:*:*:secret:favorites-alerts/app-*"
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:*:*:table/Users",
+        "arn:aws:dynamodb:*:*:table/Users/index/*",
+        "arn:aws:dynamodb:*:*:table/Sessions",
+        "arn:aws:dynamodb:*:*:table/Sessions/index/*",
+        "arn:aws:dynamodb:*:*:table/Routes",
+        "arn:aws:dynamodb:*:*:table/Routes/index/*",
+        "arn:aws:dynamodb:*:*:table/Stops",
+        "arn:aws:dynamodb:*:*:table/Stops/index/*",
+        "arn:aws:dynamodb:*:*:table/Trips",
+        "arn:aws:dynamodb:*:*:table/Trips/index/*",
+        "arn:aws:dynamodb:*:*:table/TripStops"
+      ]
     },
     {
+      "Sid": "ReadOwnQueue",
       "Effect": "Allow",
       "Action": [
         "sqs:ReceiveMessage",
@@ -25,9 +56,29 @@
       "Resource": "arn:aws:sqs:*:*:favorites-alerts-queue"
     },
     {
+      "Sid": "ReadOwnSecret",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:*:*:secret:favorites-alerts/app-*"
+    },
+    {
+      "Sid": "UseOwnKey",
       "Effect": "Allow",
       "Action": "kms:Decrypt",
       "Resource": "KMS_KEY_ARN"
+    },
+    {
+      "Sid": "WriteOwnLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:/aws/lambda/favorites-alerts-api",
+        "arn:aws:logs:*:*:log-group:/aws/lambda/favorites-alerts-api:*"
+      ]
     }
   ]
 }

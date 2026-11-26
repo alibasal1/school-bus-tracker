@@ -1,7 +1,7 @@
 // Tests for middleware/rateLimit.js through the real app.
 // No token is sent, so every request below the limit ends as a 401 in requireAuth
 // without touching the database. Over the limit, the 429 comes before requireAuth.
-jest.mock('../db', () => jest.fn());
+jest.mock('../db/dynamo', () => require('./helpers/fakeDynamo').createFake());
 
 const request = require('supertest');
 

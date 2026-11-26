@@ -3,16 +3,18 @@
 // they send a message to the queue, and Lambda runs handleQueueMessage for each one.
 //
 // Message for one parent (Ahmed: boarding, almost_dropped, dropped):
-//   { "type": "boarding", "parentId": "<uuid>", "message": "Omar boarded bus 12 at 07:14." }
-// Message for every parent who saved a route (Yehia: cancel, trip_change):
-//   { "type": "cancel", "routeId": "<uuid>", "message": "Route R1 morning trip is cancelled today." }
+//   { "type": "boarding", "parentId": "<user id>", "message": "Omar boarded bus 12 at 07:14." }
+// Message for every parent who saved a route (cancel, trip_change):
+//   { "type": "cancel", "routeId": "<route id>", "message": "Route R1 morning trip is cancelled today." }
+// Yehia's route events ({ event_id, event_type, route_id, payload }) are
+// translated by services/routeEvents.js first.
 const alerts = require('./alerts');
 const routeEvents = require('./routeEvents');
 const processedEvents = require('./processedEvents');
 
 const PARENT_TYPES = ['boarding', 'almost_dropped', 'dropped'];
 const ROUTE_TYPES = ['cancel', 'trip_change'];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const { validId } = require('./ids');
 
 // Returns an error text, or null if the message is valid.
 function checkMessage(msg) {
@@ -21,10 +23,10 @@ function checkMessage(msg) {
     return 'message must be 1 to 300 characters.';
   }
   if (PARENT_TYPES.includes(msg.type)) {
-    return UUID.test(msg.parentId || '') ? null : 'parentId must be a UUID.';
+    return validId(msg.parentId) ? null : 'parentId must be a valid id.';
   }
   if (ROUTE_TYPES.includes(msg.type)) {
-    return UUID.test(msg.routeId || '') ? null : 'routeId must be a UUID.';
+    return validId(msg.routeId) ? null : 'routeId must be a valid id.';
   }
   return `type must be one of: ${PARENT_TYPES.concat(ROUTE_TYPES).join(', ')}.`;
 }
@@ -41,7 +43,7 @@ async function handleQueueMessage(body) {
   }
 
   // Yehia's service does not speak this service's message shape: its events
-  // arrive from the SNS topic and are translated first. The event id keeps a
+  // are sent straight to the queue and are translated first. The event id keeps a
   // repeated delivery from creating the same alerts twice.
   let eventId = null;
   if (routeEvents.isRouteEvent(msg)) {

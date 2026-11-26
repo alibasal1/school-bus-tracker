@@ -1,14 +1,9 @@
-// Controllers validate requests and choose responses; services own SQL.
+// Controllers validate requests and choose responses; services own the DynamoDB calls.
 const favorites = require('../services/favorites');
 const alerts = require('../services/alerts');
 const holidays = require('../services/holidays');
 const { sendError } = require('../middleware/auth');
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validUuid(value) {
-  return typeof value === 'string' && UUID_PATTERN.test(value);
-}
+const { validId } = require('../services/ids');
 
 function hasJsonBody(req, res) {
   if (!req.is('application/json')) {
@@ -46,8 +41,9 @@ async function listOptions(req, res, next) {
 async function addFavorite(req, res, next) {
   if (!hasJsonBody(req, res)) return undefined;
   const { routeId, stopId = null } = req.body;
-  if (!validUuid(routeId) || (stopId !== null && !validUuid(stopId))) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'routeId and stopId must be valid UUIDs.');
+  // validId refuses objects such as {"$ne": null} and text such as "' OR 1=1".
+  if (!validId(routeId) || (stopId !== null && !validId(stopId))) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'routeId and stopId must be valid ids.');
   }
 
   try {
@@ -65,8 +61,8 @@ async function addFavorite(req, res, next) {
 }
 
 async function removeFavorite(req, res, next) {
-  if (!validUuid(req.params.id)) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Favorite id must be a valid UUID.');
+  if (!validId(req.params.id)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Favorite id must be a valid id.');
   }
   try {
     const removed = await favorites.removeFavorite(req.user.id, req.params.id);
@@ -96,8 +92,8 @@ async function listAlerts(req, res, next) {
 }
 
 async function markAlertRead(req, res, next) {
-  if (!validUuid(req.params.id)) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'Alert id must be a valid UUID.');
+  if (!validId(req.params.id)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Alert id must be a valid id.');
   }
   if (!hasJsonBody(req, res)) return undefined;
   if (req.body.isRead !== true) {

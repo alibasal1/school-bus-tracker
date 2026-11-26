@@ -1,0 +1,23 @@
+# ST-07: parent2 marks parent1 alert 747fc412-6c00-4403-91ff-bc396145abbf as read
+# 2026-11-24T02:36:28Z
+$ curl -s -i -X PATCH http://22b92e5059.execute-api.localhost.floci.io:4566/api/alerts/747fc412-6c00-4403-91ff-bc396145abbf -H Authorization: Bearer <PARENT2_TOKEN> -H Content-Type: application/json -d {"isRead":true}
+HTTP/1.1 404 Not Found
+cache-control: no-store
+content-length: 59
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Tue, 24 Nov 2026 02:36:28 GMT
+etag: W/"3b-/bpwbEKewPzRXnOaN2mzUUCUiWI"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: e0e1c1c5-19c1-41bd-871a-f5544952b2d0
+x-amz-request-id: e0e1c1c5-19c1-41bd-871a-f5544952b2d0
+x-amzn-RequestId: e0e1c1c5-19c1-41bd-871a-f5544952b2d0
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"NOT_FOUND","message":"Alert not found."}}
+# ST-07 follow-up: parent1 alert is still unread
+{"id":"747fc412-6c00-4403-91ff-bc396145abbf","type":"boarding","message":"Test: your child boarded the bus.","isRead":false,"createdAt":"2026-11-21T18:18:47.231Z"}

@@ -2,7 +2,7 @@ jest.mock('../services/alerts', () => ({
   createAlert: jest.fn().mockResolvedValue({ id: 'a1' }),
   createAlertsForRoute: jest.fn().mockResolvedValue([{ id: 'a1' }, { id: 'a2' }])
 }));
-jest.mock('../db', () => jest.fn());
+jest.mock('../db/dynamo', () => require('./helpers/fakeDynamo').createFake());
 
 const alerts = require('../services/alerts');
 const { handleQueueMessage, checkMessage } = require('../services/alertsQueue');
@@ -36,7 +36,8 @@ describe('alerts queue', () => {
   });
 
   test('bad ids and long messages are rejected', () => {
-    expect(checkMessage({ type: 'boarding', parentId: 'abc', message: 'x' })).toMatch(/parentId/);
+    expect(checkMessage({ type: 'boarding', parentId: 'not valid!', message: 'x' })).toMatch(/parentId/);
+    expect(checkMessage({ type: 'boarding', parentId: { $ne: null }, message: 'x' })).toMatch(/parentId/);
     expect(checkMessage({ type: 'cancel', parentId: PARENT, message: 'x' })).toMatch(/routeId/);
     expect(checkMessage({ type: 'boarding', parentId: PARENT, message: 'x'.repeat(301) })).toMatch(/300/);
     expect(checkMessage({ type: 'boarding', parentId: PARENT, message: 'ok' })).toBeNull();
