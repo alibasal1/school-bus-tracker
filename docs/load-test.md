@@ -2,6 +2,8 @@
 
 Owner: Ali (246090). Team 14, 26CSCN29H.
 
+**Note (26 Nov):** these runs were measured on the Neon version of the service (git tag `neon-version`), before the move to DynamoDB. They have not been repeated on DynamoDB yet.
+
 ## What was run
 
 - Script: `k6/favorites-load.js`, in the shape of Lab 8.

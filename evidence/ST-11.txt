@@ -1,0 +1,25 @@
+# ST-11: app-level rate limit (middleware/rateLimit.js), 60 requests per minute per source IP
+# API Gateway stage throttling (rate 10, burst 20) is set, but Floci does not enforce it,
+# so every 429 below comes from the app layer. Requests go one after the other so
+# they reach one warm Lambda copy (each copy keeps its own count).
+# The token is read from test-tokens.txt into $PARENT1_TOKEN and is never written here.
+# waiting 65 s so the window is empty
+
+## Run 1: 80 requests to GET /api/alerts with the PARENT1 token
+# start 2026-11-26T21:38:22Z
+$ seq 80 | xargs -P 1 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" $API/api/alerts | sort | uniq -c
+     60 200
+     20 429
+# one more request right after, with headers:
+HTTP/1.1 429 Too Many Requests
+retry-after: 43
+{"error":{"code":"RATE_LIMITED","message":"Too many requests. Try again in 43 seconds."}}
+# /api/health is never limited:
+GET /api/health -> 200
+
+# waiting 65 s so the window is empty again
+## Run 2: 80 requests, each with a different fake X-Forwarded-For
+# start 2026-11-26T21:39:45Z
+$ seq 80 | xargs -P 1 -I{} curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $PARENT1_TOKEN" -H "X-Forwarded-For: 10.9.0.{}" $API/api/alerts | sort | uniq -c
+     60 200
+     20 429

@@ -1,0 +1,24 @@
+# ST-06: ownership check, delete (parent2 tries to delete a parent1 favorite)
+# 2026-11-26T21:34:36Z
+parent1 favorite id: 47681617-7691-40b7-b8a4-78838e0a2b18
+$ curl -s -i -X DELETE -H "Authorization: Bearer $PARENT2_TOKEN" http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/favorites/47681617-7691-40b7-b8a4-78838e0a2b18
+HTTP/1.1 404 Not Found
+cache-control: no-store
+content-length: 62
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Thu, 26 Nov 2026 21:34:37 GMT
+etag: W/"3e-bcVppXnTMh8e6SjEJUZnnPyL38Q"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: 311a20bd-6115-46c7-b8d0-fcc84501c1ac
+x-amz-request-id: 311a20bd-6115-46c7-b8d0-fcc84501c1ac
+x-amzn-RequestId: 311a20bd-6115-46c7-b8d0-fcc84501c1ac
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"NOT_FOUND","message":"Favorite not found."}}
+# parent1 still has it:
+yes, 47681617-7691-40b7-b8a4-78838e0a2b18 is still there

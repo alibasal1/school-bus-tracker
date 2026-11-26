@@ -1,0 +1,20 @@
+# ST-04: invalid input, NoSQL injection style
+# 2026-11-26T21:34:27Z
+# favorites saved by parent1 before: 1
+
+$ curl -s -i -X POST -H "Authorization: Bearer $PARENT1_TOKEN" -H 'Content-Type: application/json' -d '{"routeId":{"$ne":null}}' http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/favorites
+HTTP/1.1 400 Bad Request
+content-length: 87
+{"error":{"code":"VALIDATION_ERROR","message":"routeId and stopId must be valid ids."}}
+
+$ curl -s -i -X POST -H "Authorization: Bearer $PARENT1_TOKEN" -H 'Content-Type: application/json' -d '{"routeId":"' OR 1=1"}' http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/favorites
+HTTP/1.1 400 Bad Request
+content-length: 87
+{"error":{"code":"VALIDATION_ERROR","message":"routeId and stopId must be valid ids."}}
+
+$ curl -s -i -X POST -H "Authorization: Bearer $PARENT1_TOKEN" -H 'Content-Type: application/json' -d '{"routeId":"test-route-1","stopId":{"$gt":""}}' http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/favorites
+HTTP/1.1 400 Bad Request
+content-length: 87
+{"error":{"code":"VALIDATION_ERROR","message":"routeId and stopId must be valid ids."}}
+
+# favorites saved by parent1 after: 1

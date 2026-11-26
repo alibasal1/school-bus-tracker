@@ -1,0 +1,22 @@
+# ST-10: secret exposure review
+# 2026-11-26T21:36:51Z
+## 1. Lambda environment variables (names only; each value checked for a secret)
+NODE_ENV: no secret in value
+SECRET_ID: no secret in value
+CORS_ORIGINS: no secret in value
+AWS_ENDPOINT_URL: no secret in value
+DATABASE_URL present: false
+CALENDARIFIC_API_KEY present: false (it is read from Secrets Manager at cold start)
+## 2. The secret favorites-alerts/app (key names only)
+CALENDARIFIC_API_KEY, RATE_LIMIT_MAX
+KMS key: arn:aws:kms:us-east-1:000000000000:key/b4da5ed4-781a-415d-88f4-602e592b9cfc
+## 3. Git history (git log --all -p, every commit)
+postgres URLs with a real password: 0
+AWS access keys (AKIA...): 0
+test session tokens: 0
+.env ever committed: 0
+## 4. CloudWatch Logs /aws/lambda/favorites-alerts-api
+log events read: 38
+Bearer / Authorization: 0
+test tokens: 0
+64-hex strings: 0

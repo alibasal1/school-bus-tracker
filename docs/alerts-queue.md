@@ -1,25 +1,90 @@
 # How to send an alert to parents (for Yehia and Ahmed)
 
-The Favorites & Alerts service owns the `alerts` table. Your service does not write to it and
-does not call Ali's code. You send one message to the SQS queue `favorites-alerts-queue`.
-Ali's Lambda reads the queue and creates the alerts.
+The Favorites & Alerts service owns the `Alerts` table in DynamoDB. Your service
+does not write to it and does not call Ali's code. You send one message to the
+SQS queue `favorites-alerts-queue`. Ali's Lambda reads the queue and creates the alerts.
 
-## The message
+There is no SNS in between any more: you call `SendMessage` on the queue yourself.
 
-One parent (Ahmed: attendance):
+## Queue
+
+| | Value on Floci |
+|---|---|
+| Queue URL | `http://localhost:4566/000000000000/favorites-alerts-queue` |
+| Queue ARN | `arn:aws:sqs:us-east-1:000000000000:favorites-alerts-queue` |
+| Dead-letter queue | `favorites-alerts-dlq` (after 3 failed tries) |
+
+`bash infra/deploy.sh` prints both at the end and saves them in `out/api-url.txt`.
+Inside a Lambda on Floci, use the same queue name with your SDK client; on real
+AWS the account number and region change.
+
+## Permission (least privilege)
+
+Your Lambda role needs this, and nothing else of mine:
+
 ```json
-{ "type": "boarding", "parentId": "<parent user uuid>", "message": "Omar boarded bus 12 at 07:14." }
+{
+  "Effect": "Allow",
+  "Action": "sqs:SendMessage",
+  "Resource": "arn:aws:sqs:*:*:favorites-alerts-queue"
+}
 ```
+
+## Message shapes
+
+### 1. Route events (Yehia)
+
+Send the event as it is. `services/routeEvents.js` turns it into an alert for
+every parent who saved that route.
+
+```json
+{
+  "event_id": "44444444-4444-4444-8444-444444444444",
+  "event_type": "trip.cancelled",
+  "route_id": "route-cairo-demo",
+  "payload": {
+    "service_date": "2026-11-26",
+    "run_type": "morning",
+    "route_code": "CAI-DEMO",
+    "reason": "Bus in the garage"
+  }
+}
+```
+
+| Field | Rule |
+|---|---|
+| `event_id` | required, unique per event. Letters, digits, `-`, `_` |
+| `event_type` | `trip.cancelled` (becomes `cancel`) or `trip.created` (becomes `trip_change`) |
+| `route_id` | the route id from the `Routes` table. It may also be inside `payload` |
+| `payload` | optional: `service_date`, `run_type`, `route_code`, `reason` make the text nicer |
+
+What a parent reads: `Route CAI-DEMO: the morning trip on 2026-11-26 is cancelled. Reason: Bus in the garage`
+
+**Duplicates.** SQS delivers at least once, so the same event can arrive twice.
+`event_id` is the idempotency key: `services/processedEvents.js` writes it to the
+`ProcessedEvents` table with `attribute_not_exists(event_id)`. Only the first
+delivery creates alerts; a repeat is logged as `already handled, skipped`.
+
+### 2. One parent (Ahmed: attendance)
+
+```json
+{ "type": "boarding", "parentId": "<parent user id>", "message": "Omar boarded bus 12 at 07:14." }
+```
+
 `type` is `boarding`, `almost_dropped` or `dropped`.
 
-Every parent who saved a route (Yehia: trips):
+### 3. Every parent of a route, own text
+
 ```json
-{ "type": "cancel", "routeId": "<route uuid>", "message": "Route R1 morning trip is cancelled today." }
+{ "type": "cancel", "routeId": "<route id>", "message": "Route R1 morning trip is cancelled today." }
 ```
+
 `type` is `cancel` or `trip_change`.
 
-Rules: `message` is 1 to 300 characters. Ids are UUIDs. A bad message is dropped and logged.
-If the database is down, SQS tries 3 times, then moves the message to `favorites-alerts-dlq`.
+Rules for all shapes: `message` is 1 to 300 characters, ids use only letters,
+digits, `-` and `_`. A bad message is logged and dropped (sending it again would
+not fix it). If DynamoDB fails, the Lambda throws, SQS tries again, and after 3
+tries the message moves to `favorites-alerts-dlq`.
 
 ## Send it from Node.js (your Lambda)
 
@@ -29,70 +94,19 @@ const sqs = new SQSClient({});
 
 await sqs.send(new SendMessageCommand({
   QueueUrl: process.env.ALERTS_QUEUE_URL,
-  MessageBody: JSON.stringify({ type: 'boarding', parentId, message }),
+  MessageBody: JSON.stringify({ event_id, event_type: 'trip.cancelled', route_id, payload })
 }));
-```
-
-Set `ALERTS_QUEUE_URL` on your Lambda. Ali's `bash infra/deploy.sh` prints it at the end.
-
-## Permission (least privilege)
-
-Add this to your Lambda role's policy. It allows sending to this one queue only:
-```json
-{
-  "Effect": "Allow",
-  "Action": "sqs:SendMessage",
-  "Resource": "arn:aws:sqs:*:*:favorites-alerts-queue"
-}
 ```
 
 ## Test from Git Bash
 
 ```
+export AWS_PROFILE=floci
 QUEUE_URL=$(aws sqs get-queue-url --queue-name favorites-alerts-queue --query QueueUrl --output text)
+aws sqs send-message --queue-url $QUEUE_URL --message-body file://infra/events/route-cancelled.json
 aws sqs send-message --queue-url $QUEUE_URL --message-body file://infra/events/test-boarding-message.json
 ```
 
-## Route events from the Route & Stop service (added 24/11)
-
-Yehia's service never calls this one directly. It writes every trip change into
-its own `route_events` outbox in the same transaction as the change, and a
-forwarder Lambda publishes those rows to the SNS topic `school-bus-route-events`.
-This service's queue is subscribed to that topic, so the event arrives in the
-same SQS queue as the messages Ahmed sends.
-
-```
-admin cancels a trip
-  -> route_events row (same transaction)
-  -> forwarder Lambda
-  -> SNS school-bus-route-events
-  -> SQS favorites-alerts-queue        (raw message delivery)
-  -> this Lambda: services/routeEvents.js translates it
-  -> alerts for every parent who saved that route
-```
-
-The events do not use this service's message shape, so `services/routeEvents.js`
-translates them:
-
-| Event from Yehia | Becomes | Message a parent reads |
-|---|---|---|
-| `trip.cancelled` | `cancel` | Route R1: the morning trip on 2026-11-24 is cancelled. Reason: ... |
-| `trip.created` | `trip_change` | Route R1: a morning trip has been scheduled for 2026-11-24. |
-
-Anything else (an unknown `event_type`, a missing `event_id` or `route_id`) is
-logged and dropped, because sending it again would not fix it.
-
-**Duplicates.** SNS and SQS both deliver at least once, so the same cancellation
-can arrive twice. The `event_id` is the idempotency key: `services/processedEvents.js`
-inserts it into `processed_events` and only the delivery that wins the primary key
-creates the alerts. Run `db/migrations/001_processed_events.sql` in Neon once.
-
-Test it by hand, after putting a real route id in the file:
-
-```
-aws sqs send-message --queue-url $(grep QUEUE_URL out/api-url.txt | cut -d= -f2-) \
-  --message-body file://infra/events/route-cancelled.json
-```
-
-Send it twice: the first call creates the alerts, the second writes
-`route event ... was already handled, skipped` in the log and creates nothing.
+`route-cancelled.json` points at `test-route-1` from `scripts/seed-floci.js`.
+Send it twice: the first call creates the alerts, the second creates nothing.
+The result of this test is in `evidence/ST-09.txt`.

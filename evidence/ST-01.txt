@@ -1,0 +1,21 @@
+# ST-01: no token
+# 2026-11-26T21:34:25Z
+$ curl -s -i http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/favorites
+HTTP/1.1 401 Unauthorized
+cache-control: no-store
+content-length: 63
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Thu, 26 Nov 2026 21:34:26 GMT
+etag: W/"3f-nLGHUATFGZ5bzmYrSQjDfzxxT3I"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: 3e95839d-0d34-46a2-a8f9-b234ae4cf9dd
+x-amz-request-id: 3e95839d-0d34-46a2-a8f9-b234ae4cf9dd
+x-amzn-RequestId: 3e95839d-0d34-46a2-a8f9-b234ae4cf9dd
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"UNAUTHENTICATED","message":"Please log in."}}

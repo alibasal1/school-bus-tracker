@@ -1,0 +1,24 @@
+# ST-07: ownership check, update (parent2 tries to mark a parent1 alert as read)
+# 2026-11-26T21:34:54Z
+parent1 unread alert id: e7f48ff1-dde1-4bd2-a80e-95cdefbfba65
+$ curl -s -i -X PATCH -H "Authorization: Bearer $PARENT2_TOKEN" -H 'Content-Type: application/json' -d '{"isRead":true}' http://9e60eb42eb.execute-api.localhost.floci.io:4566/api/alerts/e7f48ff1-dde1-4bd2-a80e-95cdefbfba65
+HTTP/1.1 404 Not Found
+cache-control: no-store
+content-length: 59
+content-security-policy: default-src 'none'; frame-ancestors 'none'
+content-type: application/json; charset=utf-8
+cross-origin-resource-policy: same-site
+Date: Thu, 26 Nov 2026 21:34:54 GMT
+etag: W/"3b-/bpwbEKewPzRXnOaN2mzUUCUiWI"
+referrer-policy: no-referrer
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Origin
+x-amz-id-2: dfdbb972-96a6-47ea-8357-cc1cfc173e8d
+x-amz-request-id: dfdbb972-96a6-47ea-8357-cc1cfc173e8d
+x-amzn-RequestId: dfdbb972-96a6-47ea-8357-cc1cfc173e8d
+x-content-type-options: nosniff
+x-frame-options: DENY
+
+{"error":{"code":"NOT_FOUND","message":"Alert not found."}}
+# parent1 alert after the attempt:
+{"id":"e7f48ff1-dde1-4bd2-a80e-95cdefbfba65","type":"boarding","message":"Test: your child boarded the bus.","isRead":false,"createdAt":"2026-11-26T21:34:41.843Z"}
